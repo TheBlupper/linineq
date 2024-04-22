@@ -1,5 +1,5 @@
 import threading
-from sage.all import vector, ZZ, matrix, identity_matrix, zero_matrix
+from sage.all import vector, ZZ, matrix, identity_matrix, zero_matrix, verbose
 from ortools.sat.python import cp_model as ort
 from queue import Queue
 
@@ -153,8 +153,12 @@ def _build_system(M, Mineq, b, bineq, lp_bound=1000):
     # as T*x + c
     T = ker.T*R
     c = T*v + s
-    f = lambda sol: T*vector(ZZ, sol) + c
 
+    def f(sol):
+        verbose(f'solution paramaters: {sol}', level=1)
+        return T*vector(ZZ, sol) + c
+
+    verbose('model processing done', level=1)
     return model, X, f
 
 
