@@ -13,3 +13,5 @@ Each of these methods has a `_gen` variant (e.g `solve_bounded_gen`) which retur
 `lp_bound` is an internal restriction on the size of the unknowns for the linear programming step. This does *not* correspond to the size of the solutions you will find, rather the size of the coefficients a lattice-reduced matrix is multiplied by. You can usually get by with surprisingly small values for `lp_bound` (e.g. 10).
 
 You will need `ortools` (`pip install ortools`) and [Sage](https://doc.sagemath.org/html/en/installation/index.html).
+
+Then either manually download `linineq.py`, or if you're feeling trusting just type `load('https://raw.githubusercontent.com/TheBlupper/linineq/main/linineq.py')` into Sage.
