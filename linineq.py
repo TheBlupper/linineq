@@ -1,8 +1,9 @@
 import threading
-from sage.all import vector, ZZ, matrix, identity_matrix, zero_matrix, verbose
+from sage.misc.verbose import verbose
+from sage.all import vector, ZZ, matrix, identity_matrix, zero_matrix
 from ortools.sat.python import cp_model as ort
 from queue import Queue
-
+from fpylll import IntegerMatrix, GSO
 
 def babai_coords(M, tgt):
     '''
@@ -11,15 +12,11 @@ def babai_coords(M, tgt):
     reduced lattice M
     '''
 
-    G = M.gram_schmidt()[0]
-    diff = tgt
-
-    coord = []
-    for i in reversed(range(G.nrows())):
-        c = ((diff * G[i]) / (G[i] * G[i])).round()
-        coord.append(c)
-        diff -= c*M[i]
-    return tgt - diff, vector(coord[::-1])
+    Mf = IntegerMatrix.from_matrix(M)
+    G = GSO.Mat(Mf)
+    G.update_gso()
+    w = vector(ZZ, G.babai(list(tgt)))
+    return w*M, w
 
 
 def _validate_model(model):
@@ -138,6 +135,8 @@ def _build_system(M, Mineq, b, bineq, lp_bound=100):
     R = ((Mker.T*Mker)**-1 * (Mker.T*Mred)).change_ring(ZZ)
 
     bineq = bineq - Mineq*s
+
+    verbose('running babai', level=1)
     bineq_cv, v = babai_coords(Mred.T, bineq)
     bineq_red = bineq - bineq_cv
 
