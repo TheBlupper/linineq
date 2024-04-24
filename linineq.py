@@ -3,20 +3,44 @@ from sage.misc.verbose import verbose
 from sage.all import vector, ZZ, matrix, identity_matrix, zero_matrix
 from ortools.sat.python import cp_model as ort
 from queue import Queue
-from fpylll import IntegerMatrix, GSO
+from fpylll import IntegerMatrix, GSO, FPLLL
 
-def babai_coords(M, tgt):
+
+def babai_fplll(M, tgt, prec=2048):
     '''
     Returns both the (approximate) closest vector
     to tgt and its coordinates in the already
     reduced lattice M
     '''
 
+    prev_prec = FPLLL.get_precision()
+    FPLLL.set_precision(prec)
+
     Mf = IntegerMatrix.from_matrix(M)
-    G = GSO.Mat(Mf)
+    G = GSO.Mat(Mf, float_type='mpfr')
     G.update_gso()
     w = vector(ZZ, G.babai(list(tgt)))
+
+    FPLLL.set_precision(prev_prec)
     return w*M, w
+
+
+def babai_slow(M, tgt):
+    '''
+    Returns both the (approximate) closest vector
+    to tgt and its coordinates in the already
+    reduced lattice M
+    '''
+
+    G = M.gram_schmidt()[0]
+    diff = tgt
+
+    w = []
+    for i in reversed(range(G.nrows())):
+        c = ((diff * G[i]) / (G[i] * G[i])).round()
+        w.append(c)
+        diff -= c*M[i]
+    return tgt - diff, vector(w[::-1])
 
 
 def _validate_model(model):
@@ -104,7 +128,7 @@ def find_solution(model, variables):
 
 
 # https://library.wolfram.com/infocenter/Books/8502/AdvancedAlgebra.pdf page 80
-def _build_system(M, Mineq, b, bineq, lp_bound=100):
+def _build_system(M, Mineq, b, bineq, lp_bound=100, reduction='LLL', bkz_block_size=10, babai_prec=2048):
     '''
     Returns a tuple (model, X, f) where model is an ortools model,
     X is a list of variables we want the solution for, and f is a
@@ -128,7 +152,9 @@ def _build_system(M, Mineq, b, bineq, lp_bound=100):
     Mker = Mineq*ker.T
 
     # using BKZ instead might help in some cases
-    Mred = Mker.T.BKZ().T
+    if reduction == 'LLL': Mred = Mker.T.LLL().T
+    elif reduction == 'BKZ': Mred = Mker.T.BKZ(block_size=bkz_block_size).T
+    else: raise ValueError("reduction must be 'LLL' or 'BKZ'")
 
     # matrix magic that will transform our
     # solution back to the original space
@@ -137,7 +163,11 @@ def _build_system(M, Mineq, b, bineq, lp_bound=100):
     bineq = bineq - Mineq*s
 
     verbose('running babai', level=1)
-    bineq_cv, v = babai_coords(Mred.T, bineq)
+    if babai_prec == -1:
+        verbose('using slow babai', level=1)
+        bineq_cv, v = babai_slow(Mred.T, bineq)
+    else:
+        bineq_cv, v = babai_fplll(Mred.T, bineq, prec=babai_prec)
     bineq_red = bineq - bineq_cv
 
     model = ort.CpModel()
