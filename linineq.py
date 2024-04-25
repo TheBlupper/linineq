@@ -6,7 +6,7 @@ from queue import Queue
 from fpylll import IntegerMatrix, GSO, FPLLL
 
 
-def babai_fplll(M, tgt, prec=2048):
+def babai_fplll(M, tgt, prec=4096):
     '''
     Returns both the (approximate) closest vector
     to tgt and its coordinates in the already
@@ -128,7 +128,7 @@ def find_solution(model, variables):
 
 
 # https://library.wolfram.com/infocenter/Books/8502/AdvancedAlgebra.pdf page 80
-def _build_system(M, Mineq, b, bineq, lp_bound=100, reduction='LLL', bkz_block_size=10, babai_prec=2048):
+def _build_system(M, Mineq, b, bineq, lp_bound=100, reduction='LLL', bkz_block_size=10, babai_prec=4096):
     '''
     Returns a tuple (model, X, f) where model is an ortools model,
     X is a list of variables we want the solution for, and f is a
