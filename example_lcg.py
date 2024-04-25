@@ -29,7 +29,7 @@ ub = vector([m-1]*n)               - B
 L = identity_matrix(n)*m
 
 # coefficient in front of s0
-L.set_column(0, [(a**i) for i in range(n)])
+L.set_column(0, [(a**i)%m for i in range(n)])
 
 # one for lower bound one for upper bound
 # x <= y  <=>  -x >= -y
