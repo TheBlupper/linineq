@@ -128,7 +128,7 @@ def find_solution(model, variables):
 
 
 # https://library.wolfram.com/infocenter/Books/8502/AdvancedAlgebra.pdf page 80
-def _build_system(M, Mineq, b, bineq, lp_bound=100, reduction='LLL', bkz_block_size=10, babai_prec=4096):
+def _build_system(M, Mineq, b, bineq, lp_bound=100, reduction='LLL', bkz_block_size=10, babai_prec=None):
     '''
     Returns a tuple (model, X, f) where model is an ortools model,
     X is a list of variables we want the solution for, and f is a
@@ -163,11 +163,10 @@ def _build_system(M, Mineq, b, bineq, lp_bound=100, reduction='LLL', bkz_block_s
     bineq = bineq - Mineq*s
 
     verbose('running babai', level=1)
-    if babai_prec == -1:
-        verbose('using slow babai', level=1)
+    if babai_prec is None:
         bineq_cv, v = babai_slow(Mred.T, bineq)
     else:
-        bineq_cv, v = babai_fplll(Mred.T, bineq, prec=babai_prec)
+        bineq_cv, v = babai_fplll(Mred.T, bineq, prec=int(babai_prec))
     bineq_red = bineq - bineq_cv
 
     model = ort.CpModel()
