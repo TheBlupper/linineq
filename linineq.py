@@ -160,6 +160,7 @@ def _build_system(M, Mineq, b, bineq, lp_bound=100, reduction='LLL', bkz_block_s
     # solution back to the original space
     R = ((Mker.T*Mker)**-1 * (Mker.T*Mred)).change_ring(ZZ)
 
+    bineq = vector(ZZ, bineq)
     bineq = bineq - Mineq*s
 
     verbose('running babai', level=1)
@@ -275,3 +276,68 @@ def solve_bounded_mod(M, b, lb, ub, N, **kwargs):
 
     model, X, f = _build_mod_system(M, b, lb, ub, N, **kwargs)
     return f(find_solution(model, X))
+
+
+def _build_bounded_lcg_system(a, b, m, lb, ub, **kwargs):
+    assert len(lb) == len(ub)
+    n = len(lb)
+    B = vector(ZZ, [(b*(a**i-1)//(a-1))%m for i in range(n)])
+
+    lb = vector(ZZ, lb) - B
+    ub = vector(ZZ, ub) - B
+
+    L = identity_matrix(n)*m
+    L.set_column(0, [(a**i)%m for i in range(n)])
+
+    Mineq = L.stack(-L)
+    bineq = vector(ZZ, [*lb] + [-x for x in ub])
+
+    # no equalities need to hold
+    M = matrix(ZZ, 0, Mineq.ncols())
+
+    model, X, f = _build_system(M, Mineq, [], bineq, **kwargs)
+    return model, X, lambda sol: L*f(sol)+B
+
+
+def solve_bounded_lcg(a, b, m, lb, ub, **kwargs):
+    '''
+    Solves for consecutive outputs of the LCG s[i+1]=(a*s[i]+b)%m
+    where lb[i] <= s[i] <= ub[i]
+    '''
+    model, X, f = _build_bounded_lcg_system(a, b, m, lb, ub, **kwargs)
+    return f(find_solution(model, X))
+
+
+def solve_bounded_lcg_gen(a, b, m, lb, ub, **kwargs):
+    '''
+    Returns a generator yielding all* possible consecutive
+    outputs of the LCG s[i+1]=(a*s[i]+b)%m where
+    lb[i] <= s[i] <= ub[i]
+
+    *depending on the lp_bound parameter
+    '''
+    model, X, f = _build_bounded_lcg_system(a, b, m, lb, ub, **kwargs)
+    yield from map(f, gen_solutions(model, X))
+
+
+def solve_truncated_lcg(a, b, m, ys, ntrunc):
+    '''
+    Solve for consecutive outputs of the LCG s[i+1]=(a*s[i]+b)%m
+    where s[i] >> ntrunc = ys[i]
+    '''
+    lb = [y << ntrunc for y in ys]
+    ub = [((y+1) << ntrunc)-1 for y in ys]
+    return solve_bounded_lcg(a, b, m, lb, ub)
+
+
+def solve_truncated_lcg_gen(a, b, m, ys, ntrunc):
+    '''
+    Returns a generator yielding all* possible consecutive
+    outputs of the LCG s[i+1]=(a*s[i]+b)%m where
+    s[i] >> ntrunc = ys[i]
+
+    *depending on the lp_bound parameter
+    '''
+    lb = [y << ntrunc for y in ys]
+    ub = [((y+1) << ntrunc)-1 for y in ys]
+    yield from solve_bounded_lcg_gen(a, b, m, lb, ub)
