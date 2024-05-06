@@ -152,13 +152,15 @@ def _build_system(M, Mineq, b, bineq, lp_bound=100, reduction='LLL', bkz_block_s
     Mker = Mineq*ker.T
 
     # using BKZ instead might help in some cases
-    if reduction == 'LLL': Mred = Mker.T.LLL().T
-    elif reduction == 'BKZ': Mred = Mker.T.BKZ(block_size=bkz_block_size).T
-    else: raise ValueError("reduction must be 'LLL' or 'BKZ'")
+    if reduction == 'LLL':
+        Mred, R = Mker.T.LLL(transformation=True)
+        Mred, R = Mred.T, R.T
+    elif reduction == 'BKZ':
+        Mred = Mker.T.BKZ(block_size=bkz_block_size).T
 
-    # matrix magic that will transform our
-    # solution back to the original space
-    R = ((Mker.T*Mker)**-1 * (Mker.T*Mred)).change_ring(ZZ)
+        # BKZ doesn't provide a transformation matrix
+        R = ((Mker.T*Mker)**-1 * (Mker.T*Mred)).change_ring(ZZ)
+    else: raise ValueError("reduction must be 'LLL' or 'BKZ'")
 
     bineq = vector(ZZ, bineq)
     bineq = bineq - Mineq*s
