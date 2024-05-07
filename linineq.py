@@ -136,13 +136,17 @@ def _build_system(M, Mineq, b, bineq, lp_bound=100, reduction='LLL', bkz_block_s
 
     # using BKZ instead might help in some cases
     if reduction == 'LLL':
-        Mred = Mker.T.LLL().T
+        Mred, R = Mker.T.LLL(transformation=True)
+        Mred, R = Mred.T, R.T
     elif reduction == 'BKZ':
         Mred = Mker.T.BKZ(block_size=bkz_block_size).T
+
+        # BKZ doesnt provide a transformation matrix
+        # Mker is not always invertible hence we use solve_right
+        R = Mker.solve_right(Mred).change_ring(ZZ)
     else: raise ValueError(f"reduction must be 'LLL' or 'BKZ', not {reduction!r}")
 
     bineq = vector(ZZ, bineq) - Mineq*s
-
 
     if babai_prec is None:
         # very heuristic, lmk if this causes issues
@@ -163,10 +167,6 @@ def _build_system(M, Mineq, b, bineq, lp_bound=100, reduction='LLL', bkz_block_s
     if Mker.rank() < Mker.ncols():
         warn('underdetermined inequalities, beware of many solutions')
     
-    # transformation matrix back to the original space
-    # Mker is not always invertible hence we use solve_right
-    R = Mker.solve_right(Mred).change_ring(ZZ)
-
     # precompute the operation R*(x+v)*ker + s
     # as T*x + c
     T = ker.T*R
