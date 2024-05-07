@@ -1,4 +1,5 @@
 import threading
+from warnings import warn
 from sage.misc.verbose import verbose
 from sage.all import vector, ZZ, matrix, identity_matrix, zero_matrix
 from ortools.sat.python import cp_model as ort
@@ -23,24 +24,6 @@ def babai_fplll(M, tgt, prec=4096):
 
     FPLLL.set_precision(prev_prec)
     return w*M, w
-
-
-def babai_slow(M, tgt):
-    '''
-    Returns both the (approximate) closest vector
-    to tgt and its coordinates in the already
-    reduced lattice M
-    '''
-
-    G = M.gram_schmidt()[0]
-    diff = tgt
-
-    w = []
-    for i in reversed(range(G.nrows())):
-        c = ((diff * G[i]) / (G[i] * G[i])).round()
-        w.append(c)
-        diff -= c*M[i]
-    return tgt - diff, vector(w[::-1])
 
 
 def _validate_model(model):
@@ -147,29 +130,26 @@ def _build_system(M, Mineq, b, bineq, lp_bound=100, reduction='LLL', bkz_block_s
     except TypeError:
         raise ValueError('no solution (even without bounds)')
 
-    ker = M.right_kernel().basis_matrix().change_ring(ZZ)
+    ker = M.right_kernel_matrix().change_ring(ZZ)
 
     Mker = Mineq*ker.T
 
     # using BKZ instead might help in some cases
     if reduction == 'LLL':
-        Mred, R = Mker.T.LLL(transformation=True)
-        Mred, R = Mred.T, R.T
+        Mred = Mker.T.LLL().T
     elif reduction == 'BKZ':
         Mred = Mker.T.BKZ(block_size=bkz_block_size).T
+    else: raise ValueError(f"reduction must be 'LLL' or 'BKZ', not {reduction!r}")
 
-        # BKZ doesn't provide a transformation matrix
-        R = ((Mker.T*Mker)**-1 * (Mker.T*Mred)).change_ring(ZZ)
-    else: raise ValueError("reduction must be 'LLL' or 'BKZ'")
+    bineq = vector(ZZ, bineq) - Mineq*s
 
-    bineq = vector(ZZ, bineq)
-    bineq = bineq - Mineq*s
 
-    verbose('running babai', level=1)
     if babai_prec is None:
-        bineq_cv, v = babai_slow(Mred.T, bineq)
-    else:
-        bineq_cv, v = babai_fplll(Mred.T, bineq, prec=int(babai_prec))
+        # very heuristic, lmk if this causes issues
+        babai_prec = max(4096, 2*Mred.norm().round().nbits())
+
+    verbose(f'running babai with {babai_prec} bits of precision', level=1)
+    bineq_cv, v = babai_fplll(Mred.T, bineq, prec=int(babai_prec))
     bineq_red = bineq - bineq_cv
 
     model = ort.CpModel()
@@ -177,14 +157,21 @@ def _build_system(M, Mineq, b, bineq, lp_bound=100, reduction='LLL', bkz_block_s
 
     # Mred*X >= bineq_red
     Y = [sum([c*x for c, x in zip(row, X)]) for row in Mred]
-    for i, yi in enumerate(Y):
-        model.Add(yi >= bineq_red[i])
+    for yi, bi in zip(Y, bineq_red):
+        model.Add(yi >= bi)
     
+    if Mker.rank() < Mker.ncols():
+        warn('underdetermined inequalities, beware of many solutions')
+    
+    # transformation matrix back to the original space
+    # Mker is not always invertible hence we use solve_right
+    R = Mker.solve_right(Mred).change_ring(ZZ)
+
     # precompute the operation R*(x+v)*ker + s
     # as T*x + c
     T = ker.T*R
     c = T*v + s
-
+    
     def f(sol):
         verbose(f'solution paramaters: {sol}', level=1)
         return T*vector(ZZ, sol) + c

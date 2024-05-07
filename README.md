@@ -26,7 +26,7 @@ Keyword arguments:
 
  - `bkz_block_size` (default `10`) is only applicable if `reduction='BKZ'`, and denotes the block size the BKZ algorithm should use.
 
- - `babai_prec` (default `None`) If this is a positive integer then FPLLL will be used for running Babai's algorithm and this number denotes the number of bits of precision which should be used. If this is `None` then a much slower but more precise implementation is used.
+ - `babai_prec` (default `None`) How many bits of precision FPYLLL's Babai algorithm should use. If `None` it is chosen heuristically, with a minimum of `1024` bits.
 
 
 ## Installation
