@@ -160,9 +160,9 @@ def _build_system(M, Mineq, b, bineq, lp_bound=100, reduction='LLL', bkz_block_s
     X = [model.NewIntVar(-lp_bound, lp_bound, f'x{i}') for i in range(Mred.ncols())]
 
     # Mred*X >= bineq_red
-    Y = [sum([c*x for c, x in zip(row, X)]) for row in Mred]
+    Y = [sum([int(c)*x for c, x in zip(row, X)]) for row in Mred]
     for yi, bi in zip(Y, bineq_red):
-        model.Add(yi >= bi)
+        model.Add(yi >= int(bi))
     
     if Mker.rank() < Mker.ncols():
         warn('underdetermined inequalities, beware of many solutions')
