@@ -191,13 +191,13 @@ def _build_system(M, Mineq, b, bineq, lp_bound=100, reduction='LLL', bkz_block_s
         warn('underdetermined inequalities, beware of many solutions')
     
     # precompute the operation (x+v)*R*ker + s
-    # as T*x + c
-    T = ker.T*R.T
-    c = T*v + s
+    # as x*T + c
+    T = R*ker
+    c = v*T + s
     
     def f(sol):
         verbose(f'solution paramaters: {sol}', level=1)
-        return T*vector(ZZ, sol) + c
+        return vector(ZZ, sol)*T + c
 
     verbose('model processing done', level=1)
     return model, X, f
