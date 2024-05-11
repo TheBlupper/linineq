@@ -111,7 +111,7 @@ def find_solution(model, variables):
 
 
 # https://library.wolfram.com/infocenter/Books/8502/AdvancedAlgebra.pdf page 80
-def _build_system(M, Mineq, b, bineq, lp_bound=100, reduction='LLL', bkz_block_size=10, babai_prec=None):
+def _build_system(M, Mineq, b, bineq, lp_bound=100, reduction='LLL', bkz_block_size=20, babai_prec=None):
     '''
     Returns a tuple (model, X, f) where model is an ortools model,
     X is a list of variables we want the solution for, and f is a
