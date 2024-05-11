@@ -142,7 +142,7 @@ def _build_system(M, Mineq, b, bineq, lp_bound=100, reduction='LLL', bkz_block_s
         Mred = Mker.BKZ(block_size=bkz_block_size)
 
         # BKZ doesnt provide a transformation matrix
-        # Mker is not always invertible hence we use solve_right
+        # Mker is not always invertible hence we use solve_left
         R = Mker.solve_left(Mred).change_ring(ZZ)
     else: raise ValueError(f"reduction must be 'LLL' or 'BKZ', not {reduction!r}")
 
