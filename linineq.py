@@ -156,13 +156,36 @@ def _build_system(M, Mineq, b, bineq, lp_bound=100, reduction='LLL', bkz_block_s
     bineq_cv, v = babai_fplll(Mred, bineq, prec=int(babai_prec))
     bineq_red = bineq - bineq_cv
 
-    model = ort.CpModel()
-    X = [model.NewIntVar(-lp_bound, lp_bound, f'x{i}') for i in range(Mred.nrows())]
+    try:
+        model = ort.CpModel()
+        X = [model.NewIntVar(-lp_bound, lp_bound, f'x{i}') for i in range(Mred.nrows())]
 
-    # Mred*X >= bineq_red
-    Y = [sum([int(c)*x for c, x in zip(col, X)]) for col in Mred.columns()]
-    for yi, bi in zip(Y, bineq_red):
-        model.Add(yi >= int(bi))
+        # Mred*X >= bineq_red
+        Y = [sum([int(c)*x for c, x in zip(col, X)]) for col in Mred.columns()]
+        for yi, bi in zip(Y, bineq_red):
+            model.Add(yi >= int(bi))
+    except OverflowError:
+        # we fail, but we might still have found one solution
+        sol = None
+        if all(a>=b for a, b in zip(bineq_cv, bineq)):
+            sol = vector([0]*Mred.nrows())
+        else:
+            # cheap enumeration, maybe do some fpylll enumeration in the future?
+            for i, u in enumerate(Mred.rows()):
+                if any(a<b for a, b in zip(u, bineq_red)): continue
+                sol = [0]*Mred.nrows()
+                sol[i] = 1
+                sol = vector(sol)
+                break
+
+        if sol is None:
+            raise OverflowError('Instance too large for ortools, and no residual solution found')
+
+        warn("Instance too large for ortools but found one solution anyway, "
+             "returning *only* that solution")
+        
+        model = ort.CpModel()
+        X = [model.NewIntVar(sol[i], sol[i], f'x{i}') for i in range(Mred.nrows())]
     
     if Mker.rank() < Mker.nrows():
         warn('underdetermined inequalities, beware of many solutions')
