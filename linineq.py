@@ -132,18 +132,18 @@ def _build_system(M, Mineq, b, bineq, lp_bound=100, reduction='LLL', bkz_block_s
 
     ker = M.right_kernel_matrix().change_ring(ZZ)
 
-    Mker = Mineq*ker.T
+    # switch to left multiplication
+    Mker = ker*Mineq.T
 
     # using BKZ instead might help in some cases
     if reduction == 'LLL':
-        Mred, R = Mker.T.LLL(transformation=True)
-        Mred, R = Mred.T, R.T
+        Mred, R = Mker.LLL(transformation=True)
     elif reduction == 'BKZ':
-        Mred = Mker.T.BKZ(block_size=bkz_block_size).T
+        Mred = Mker.BKZ(block_size=bkz_block_size)
 
         # BKZ doesnt provide a transformation matrix
         # Mker is not always invertible hence we use solve_right
-        R = Mker.solve_right(Mred).change_ring(ZZ)
+        R = Mker.solve_left(Mred).change_ring(ZZ)
     else: raise ValueError(f"reduction must be 'LLL' or 'BKZ', not {reduction!r}")
 
     bineq = vector(ZZ, bineq) - Mineq*s
@@ -153,23 +153,23 @@ def _build_system(M, Mineq, b, bineq, lp_bound=100, reduction='LLL', bkz_block_s
         babai_prec = max(4096, 2*Mred.norm().round().nbits())
 
     verbose(f'running babai with {babai_prec} bits of precision', level=1)
-    bineq_cv, v = babai_fplll(Mred.T, bineq, prec=int(babai_prec))
+    bineq_cv, v = babai_fplll(Mred, bineq, prec=int(babai_prec))
     bineq_red = bineq - bineq_cv
 
     model = ort.CpModel()
-    X = [model.NewIntVar(-lp_bound, lp_bound, f'x{i}') for i in range(Mred.ncols())]
+    X = [model.NewIntVar(-lp_bound, lp_bound, f'x{i}') for i in range(Mred.nrows())]
 
     # Mred*X >= bineq_red
-    Y = [sum([int(c)*x for c, x in zip(row, X)]) for row in Mred]
+    Y = [sum([int(c)*x for c, x in zip(col, X)]) for col in Mred.columns()]
     for yi, bi in zip(Y, bineq_red):
         model.Add(yi >= int(bi))
     
-    if Mker.rank() < Mker.ncols():
+    if Mker.rank() < Mker.nrows():
         warn('underdetermined inequalities, beware of many solutions')
     
-    # precompute the operation R*(x+v)*ker + s
+    # precompute the operation (x+v)*R*ker + s
     # as T*x + c
-    T = ker.T*R
+    T = ker.T*R.T
     c = T*v + s
     
     def f(sol):
