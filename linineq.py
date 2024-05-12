@@ -111,7 +111,7 @@ def find_solution(model, variables):
 
 
 # https://library.wolfram.com/infocenter/Books/8502/AdvancedAlgebra.pdf page 80
-def _build_system(M, Mineq, b, bineq, lp_bound=100, reduction='LLL', bkz_block_size=20, babai_prec=None):
+def _build_system(M, Mineq, b, lb, ub, lp_bound=100, reduction='LLL', bkz_block_size=20, babai_prec=None):
     '''
     Returns a tuple (model, X, f) where model is an ortools model,
     X is a list of variables we want the solution for, and f is a
@@ -119,7 +119,7 @@ def _build_system(M, Mineq, b, bineq, lp_bound=100, reduction='LLL', bkz_block_s
     '''
 
     assert Mineq.ncols() == M.ncols()
-    assert Mineq.nrows() == len(bineq)
+    assert Mineq.nrows() == len(lb) == len(ub)
     assert M.nrows() == len(b)
 
     # find unbounded solution
@@ -146,46 +146,28 @@ def _build_system(M, Mineq, b, bineq, lp_bound=100, reduction='LLL', bkz_block_s
         R = Mker.solve_left(Mred).change_ring(ZZ)
     else: raise ValueError(f"reduction must be 'LLL' or 'BKZ', not {reduction!r}")
 
-    bineq = vector(ZZ, bineq) - Mineq*s
+    Mineq_s = Mineq*s
+    lb = vector(ZZ, lb) - Mineq_s
+    ub = vector(ZZ, ub) - Mineq_s
 
     if babai_prec is None:
         # very heuristic, lmk if this causes issues
         babai_prec = max(4096, 2*Mred.norm().round().nbits())
 
     verbose(f'running babai with {babai_prec} bits of precision', level=1)
-    bineq_cv, v = babai_fplll(Mred, bineq, prec=int(babai_prec))
-    bineq_red = bineq - bineq_cv
+    mid = (lb+ub).apply_map(lambda x: x>>1)
+    mid_cv, mid_coord = babai_fplll(Mred, mid, prec=int(babai_prec))
+    lb_red = lb - mid_cv
+    ub_red = ub - mid_cv
 
-    try:
-        model = ort.CpModel()
-        X = [model.NewIntVar(-lp_bound, lp_bound, f'x{i}') for i in range(Mred.nrows())]
+    model = ort.CpModel()
+    X = [model.NewIntVar(-lp_bound, lp_bound, f'x{i}') for i in range(Mred.nrows())]
 
-        # Mred*X >= bineq_red
-        Y = [sum([int(c)*x for c, x in zip(col, X)]) for col in Mred.columns()]
-        for yi, bi in zip(Y, bineq_red):
-            model.Add(yi >= int(bi))
-    except OverflowError:
-        # we fail, but we might still have found one solution
-        sol = None
-        if all(a>=b for a, b in zip(bineq_cv, bineq)):
-            sol = vector([0]*Mred.nrows())
-        else:
-            # cheap enumeration, maybe do some fpylll enumeration in the future?
-            for i, u in enumerate(Mred.rows()):
-                if any(a<b for a, b in zip(u, bineq_red)): continue
-                sol = [0]*Mred.nrows()
-                sol[i] = 1
-                sol = vector(sol)
-                break
-
-        if sol is None:
-            raise OverflowError('Instance too large for ortools, and no residual solution found')
-
-        warn("Instance too large for ortools but found one solution anyway, "
-             "returning *only* that solution")
-        
-        model = ort.CpModel()
-        X = [model.NewIntVar(sol[i], sol[i], f'x{i}') for i in range(Mred.nrows())]
+    # lb_red <= Mred*X <= ub_red
+    Y = [sum([int(c)*x for c, x in zip(col, X)]) for col in Mred.columns()]
+    for yi, lbi, ubi in zip(Y, lb_red, ub_red):
+        model.Add(int(lbi) <= yi)
+        model.Add(yi <= int(ubi))
     
     if Mker.rank() < Mker.nrows():
         warn('underdetermined inequalities, beware of many solutions')
@@ -193,7 +175,7 @@ def _build_system(M, Mineq, b, bineq, lp_bound=100, reduction='LLL', bkz_block_s
     # precompute the operation (x+v)*R*ker + s
     # as x*T + c
     T = R*ker
-    c = v*T + s
+    c = mid_coord*T + s
     
     def f(sol):
         verbose(f'solution paramaters: {sol}', level=1)
@@ -203,50 +185,50 @@ def _build_system(M, Mineq, b, bineq, lp_bound=100, reduction='LLL', bkz_block_s
     return model, X, f
 
 
-def solve_bounded_gen(M, Mineq, b, bineq, **kwargs):
+def solve_bounded_gen(M, Mineq, b, lb, ub, **kwargs):
     '''
     Returns a generetor yielding all* solutions to:
-    M*x = b where Mineq*x >= bineq
+    M*x = b where lb <= Mineq*x <= ub
 
     *depending on the lp_bound parameter
     '''
 
-    model, X, f = _build_system(M, Mineq, b, bineq, **kwargs)
+    model, X, f = _build_system(M, Mineq, b, lb, ub, **kwargs)
     yield from map(f, gen_solutions(model, X))
 
 
-def solve_bounded(M, Mineq, b, bineq, **kwargs):
+def solve_bounded(M, Mineq, b, lb, ub, **kwargs):
     '''
     Finds a solution to:
-    M*x = b where Mineq*x >= bineq
+    M*x = b where lb <= Mineq*x <= ub
     '''
 
-    model, X, f = _build_system(M, Mineq, b, bineq, **kwargs)
+    model, X, f = _build_system(M, Mineq, b, lb, ub, **kwargs)
     return f(find_solution(model, X))
 
 
-def solve_ineq_gen(Mineq, bineq, **kwargs):
+def solve_ineq_gen(Mineq, lb, ub, **kwargs):
     '''
     Returns a generator yielding all* solutions to:
-    Mineq*x >= bineq
+    lb <= Mineq*x <= ub
 
     *depending on the lp_bound parameter
     '''
 
     # 0xn matrix, the kernel will be the nxn identity
     M = matrix(ZZ, 0, Mineq.ncols())
-    yield from solve_bounded_gen(M, Mineq, [], bineq, **kwargs)
+    yield from solve_bounded_gen(M, Mineq, [], lb, ub, **kwargs)
 
 
-def solve_ineq(Mineq, bineq, **kwargs):
+def solve_ineq(Mineq, lb, ub, **kwargs):
     '''
     Finds a solution to:
-    Mineq*x >= bineq
+    lb <= Mineq*x <= ub
     '''
 
     # 0xn matrix, the kernel will be the nxn identity
     M = matrix(ZZ, 0, Mineq.ncols())
-    return solve_bounded(M, Mineq, [], bineq, **kwargs)
+    return solve_bounded(M, Mineq, [], lb, ub, **kwargs)
 
 
 def _build_mod_system(M, b, lb, ub, N, **kwargs):
@@ -260,11 +242,9 @@ def _build_mod_system(M, b, lb, ub, N, **kwargs):
     nvars = M.ncols()
 
     M = M.augment(identity_matrix(neqs)*N)
-    I = identity_matrix(nvars)
-    Mineq = I.stack(-I).augment(zero_matrix(nvars*2, neqs))
-    bineq = vector([*lb] + [-x for x in ub])
+    Mineq = identity_matrix(nvars).augment(zero_matrix(nvars, neqs))
 
-    model, X, f = _build_system(M, Mineq, b, bineq, **kwargs)
+    model, X, f = _build_system(M, Mineq, b, lb, ub, **kwargs)
     return model, X, lambda sol: f(sol)[:nvars]
 
 
@@ -301,13 +281,10 @@ def _build_bounded_lcg_system(a, b, m, lb, ub, **kwargs):
     L = identity_matrix(n)*m
     L.set_column(0, [(a**i)%m for i in range(n)])
 
-    Mineq = L.stack(-L)
-    bineq = vector(ZZ, [*lb] + [-x for x in ub])
-
     # no equalities need to hold
-    M = matrix(ZZ, 0, Mineq.ncols())
+    M = matrix(ZZ, 0, L.ncols())
 
-    model, X, f = _build_system(M, Mineq, [], bineq, **kwargs)
+    model, X, f = _build_system(M, L, [], lb, ub, **kwargs)
     return model, X, lambda sol: L*f(sol)+B
 
 
