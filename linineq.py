@@ -1,3 +1,4 @@
+import ppl
 import threading
 from warnings import warn
 from sage.misc.verbose import verbose
@@ -6,6 +7,9 @@ from ortools.sat.python import cp_model as ort
 from queue import Queue
 from fpylll import IntegerMatrix, GSO, FPLLL
 
+ORTOOLS = 'ortools'
+PPL = 'ppl'
+
 
 def babai_fplll(M, tgt, prec=4096):
     '''
@@ -13,7 +17,6 @@ def babai_fplll(M, tgt, prec=4096):
     to tgt and its coordinates in the already
     reduced lattice M
     '''
-
     prev_prec = FPLLL.get_precision()
     FPLLL.set_precision(prec)
 
@@ -26,20 +29,74 @@ def babai_fplll(M, tgt, prec=4096):
     return w*M, w
 
 
+def _cp_model(problem, lp_bound=100):
+    M, b = problem
+
+    model = ort.CpModel()
+    X = [model.NewIntVar(-lp_bound, lp_bound, f'x{i}') for i in range(M.nrows())]
+
+    # X*M >= b
+    Y = [sum([int(c)*x for c, x in zip(col, X)]) for col in M.columns()]
+    for yi, bi in zip(Y, b):
+        model.Add(yi >= int(bi))
+    return model, X
+
+
 def _validate_model(model):
     err = model.Validate()
     if err == '': return
     if 'Possible integer overflow' in err:
-        raise ValueError('Overflow when trying to solve, try decreasing lp_bound')
+        raise ValueError('Possible overflow when trying to solve, try decreasing lp_bound')
     raise ValueError(f'Model rejected by ortools: {model.Validate()!r}')
 
 
-def gen_solutions(model, variables):
+def _solve_ppl(problem, lp_bound=100):
+    M, b = problem
+
+    cs = ppl.Constraint_System()
+    X = [ppl.Variable(i) for i in range(M.nrows())]
+
+    # X*M >= b
+    Y = [sum([int(c)*x for c, x in zip(col, X)]) for col in M.columns()]
+    for yi, bi in zip(Y, b):
+        cs.insert(yi >= int(bi))
+
+    # TODO: check if lp_bound would improve/decrease performance of ppl
+    # in my experience it performs worse hence it's not used atm
+    #for i in range(len(X)):
+    #    cs.insert(X[i] <= lp_bound)
+    #    cs.insert(-lp_bound<=X[i])
+
+    prob = ppl.MIP_Problem(len(X), cs, 0)
+    prob.add_to_integer_space_dimensions(ppl.Variables_Set(X[0], X[-1]))
+    gen = prob.optimizing_point()
+
+    assert gen.is_point() and gen.divisor() == 1
+    return tuple(ZZ(c) for c in gen.coefficients())
+
+
+def gen_solutions(problem, solver=ORTOOLS, lp_bound=100, **_):
     '''
-    Return a generator which yields all solutions to an
-    ortools model, this will be slower at finding a single
+    Return a generator which yields all solutions to a
+    problem instance, this will be slower at finding a single
     solution because ortools can't parallelize the search
     '''
+
+    if solver == PPL:
+        warn("using ppl which doesn't support enumeration, only one solution "
+             "will be returned")
+        yield _solve_ppl(problem, lp_bound)
+        return
+    elif solver != ORTOOLS:
+        raise ValueError(f'unknown solver {solver!r}')
+
+    try:
+        model, X = _cp_model(problem, lp_bound)
+    except OverflowError:
+        warn("instance too large for ortools, falling back to ppl which "
+             "doesn't support enumeration, only one solution will be returned")
+        yield find_solution(problem, solver, lp_bound)
+        return
 
     _validate_model(model)
 
@@ -51,7 +108,7 @@ def gen_solutions(model, variables):
     slvr.parameters.enumerate_all_solutions = True
 
     t = threading.Thread(target=_solver_thread,
-        args=(model, variables, queue, search_event, stop_event))
+        args=(model, X, queue, search_event, stop_event))
     t.start()
 
     try:
@@ -67,10 +124,10 @@ def gen_solutions(model, variables):
         t.join()
 
 
-def _solver_thread(model, variables, queue, search_event, stop_event):
+def _solver_thread(model, X, queue, search_event, stop_event):
     slvr = ort.CpSolver()
     slvr.parameters.enumerate_all_solutions = True
-    solution_collector = _SolutionCollector(variables, queue, search_event, stop_event)
+    solution_collector = _SolutionCollector(X, queue, search_event, stop_event)
     search_event.wait()
     search_event.clear()
     slvr.Solve(model, solution_collector)
@@ -78,15 +135,15 @@ def _solver_thread(model, variables, queue, search_event, stop_event):
 
 
 class _SolutionCollector(ort.CpSolverSolutionCallback):
-    def __init__(self, vars, queue, search_event, stop_event):
+    def __init__(self, X, queue, search_event, stop_event):
         super().__init__()
-        self.vars = vars
+        self.X = X
         self.queue = queue
         self.search_event = search_event
         self.stop_event = stop_event
 
     def on_solution_callback(self):
-        self.queue.put(tuple(self.Value(v) for v in self.vars))
+        self.queue.put(tuple(self.Value(x) for x in self.X))
         self.search_event.wait()
         self.search_event.clear()
         if self.stop_event.is_set():
@@ -94,10 +151,21 @@ class _SolutionCollector(ort.CpSolverSolutionCallback):
             return
 
 
-def find_solution(model, variables):
+def find_solution(problem, solver=ORTOOLS, lp_bound=100, **_):
     '''
-    Finds a single solution to an ortools model
+    Finds a single solution to a problem instance
     '''
+
+    if solver == PPL:
+        return _solve_ppl(problem, lp_bound)
+    elif solver != ORTOOLS:
+        raise ValueError(f'unknown solver {solver!r}')
+
+    try:
+        model, X = _cp_model(problem, lp_bound)
+    except OverflowError:
+        verbose('instance too large for ortools, falling back to ppl', level=1)
+        return _solve_ppl(problem, lp_bound)
 
     _validate_model(model)
 
@@ -107,19 +175,19 @@ def find_solution(model, variables):
         print(model.Validate())
     if status not in [ort.OPTIMAL, ort.FEASIBLE]:
         raise ValueError('No solution found')
-    return tuple(slvr.Value(v) for v in variables)
+    return tuple(slvr.Value(v) for v in X)
 
 
 # https://library.wolfram.com/infocenter/Books/8502/AdvancedAlgebra.pdf page 80
-def _build_system(M, Mineq, b, lb, ub, lp_bound=100, reduction='LLL', bkz_block_size=20, babai_prec=None):
+def _build_system(M, Mineq, b, bineq, reduction='LLL', bkz_block_size=20, babai_prec=None, **_):
     '''
-    Returns a tuple (model, X, f) where model is an ortools model,
-    X is a list of variables we want the solution for, and f is a
-    function that will transform a solution back to the original space
+    Returns a tuple (problem, f) where problem is a tuple of the form (M, b)
+    where a solution to x*M >= b is sought, and f is a function that will
+    transform a solution back to the original space of the query
     '''
 
     assert Mineq.ncols() == M.ncols()
-    assert Mineq.nrows() == len(lb) == len(ub)
+    assert Mineq.nrows() == len(bineq)
     assert M.nrows() == len(b)
 
     # find unbounded solution
@@ -134,6 +202,9 @@ def _build_system(M, Mineq, b, lb, ub, lp_bound=100, reduction='LLL', bkz_block_
 
     # switch to left multiplication
     Mker = ker*Mineq.T
+    
+    if Mker.rank() < Mker.nrows():
+        warn('underdetermined inequalities, beware of many solutions')
 
     # using BKZ instead might help in some cases
     if reduction == 'LLL':
@@ -146,106 +217,89 @@ def _build_system(M, Mineq, b, lb, ub, lp_bound=100, reduction='LLL', bkz_block_
         R = Mker.solve_left(Mred).change_ring(ZZ)
     else: raise ValueError(f"reduction must be 'LLL' or 'BKZ', not {reduction!r}")
 
-    Mineq_s = Mineq*s
-    lb = vector(ZZ, lb) - Mineq_s
-    ub = vector(ZZ, ub) - Mineq_s
+    bineq = vector(ZZ, bineq) - Mineq*s
 
     if babai_prec is None:
         # very heuristic, lmk if this causes issues
         babai_prec = max(4096, 2*Mred.norm().round().nbits())
 
     verbose(f'running babai with {babai_prec} bits of precision', level=1)
-    mid = (lb+ub).apply_map(lambda x: x>>1)
-    mid_cv, mid_coord = babai_fplll(Mred, mid, prec=int(babai_prec))
-    lb_red = lb - mid_cv
-    ub_red = ub - mid_cv
+    bineq_cv, bineq_coord = babai_fplll(Mred, bineq, prec=int(babai_prec))
+    bineq -= bineq_cv
 
-    model = ort.CpModel()
-    X = [model.NewIntVar(-lp_bound, lp_bound, f'x{i}') for i in range(Mred.nrows())]
-
-    # lb_red <= Mred*X <= ub_red
-    Y = [sum([int(c)*x for c, x in zip(col, X)]) for col in Mred.columns()]
-    for yi, lbi, ubi in zip(Y, lb_red, ub_red):
-        model.Add(int(lbi) <= yi)
-        model.Add(yi <= int(ubi))
-    
-    if Mker.rank() < Mker.nrows():
-        warn('underdetermined inequalities, beware of many solutions')
+    # we then let a solver find an integer solution to
+    # x*Mred >= bineq
     
     # precompute the operation (x+v)*R*ker + s
     # as x*T + c
     T = R*ker
-    c = mid_coord*T + s
+    c = bineq_coord*T + s
     
     def f(sol):
         verbose(f'solution paramaters: {sol}', level=1)
         return vector(ZZ, sol)*T + c
 
     verbose('model processing done', level=1)
-    return model, X, f
+    return (Mred, bineq), f
 
 
-def solve_bounded_gen(M, Mineq, b, lb, ub, **kwargs):
+def solve_bounded_gen(M, Mineq, b, bineq, **kwargs):
     '''
     Returns a generetor yielding all* solutions to:
-    M*x = b where lb <= Mineq*x <= ub
+    M*x = b where Mineq*x >= bineq
 
     *depending on the lp_bound parameter
     '''
 
-    model, X, f = _build_system(M, Mineq, b, lb, ub, **kwargs)
-    yield from map(f, gen_solutions(model, X))
+    problem, f = _build_system(M, Mineq, b, bineq, **kwargs)
+    yield from map(f, gen_solutions(problem, **kwargs))
 
 
-def solve_bounded(M, Mineq, b, lb, ub, **kwargs):
+def solve_bounded(M, Mineq, b, bineq, **kwargs):
     '''
     Finds a solution to:
-    M*x = b where lb <= Mineq*x <= ub
+    M*x = b where Mineq*x >= bineq
     '''
 
-    model, X, f = _build_system(M, Mineq, b, lb, ub, **kwargs)
-    return f(find_solution(model, X))
+    problem, f = _build_system(M, Mineq, b, bineq, **kwargs)
+    return f(find_solution(problem, **kwargs))
 
 
-def solve_ineq_gen(Mineq, lb, ub, **kwargs):
+def solve_ineq_gen(Mineq, bineq, **kwargs):
     '''
     Returns a generator yielding all* solutions to:
-    lb <= Mineq*x <= ub
+    Mineq*x >= bineq
 
     *depending on the lp_bound parameter
     '''
 
     # 0xn matrix, the kernel will be the nxn identity
     M = matrix(ZZ, 0, Mineq.ncols())
-    yield from solve_bounded_gen(M, Mineq, [], lb, ub, **kwargs)
+    yield from solve_bounded_gen(M, Mineq, [], bineq, **kwargs)
 
 
-def solve_ineq(Mineq, lb, ub, **kwargs):
+def solve_ineq(Mineq, bineq, **kwargs):
     '''
     Finds a solution to:
-    lb <= Mineq*x <= ub
+    Mineq*x >= bineq
     '''
 
     # 0xn matrix, the kernel will be the nxn identity
     M = matrix(ZZ, 0, Mineq.ncols())
-    return solve_bounded(M, Mineq, [], lb, ub, **kwargs)
+    return solve_bounded(M, Mineq, [], bineq, **kwargs)
 
 
 def _build_mod_system(M, b, lb, ub, N, **kwargs):
-    '''
-    Returns a tuple (model, X, f) where model is an ortools model,
-    X is a list of variables we want the solution for, and f is a
-    function that will transform the solution back to the original space
-    '''
-
     neqs = M.nrows()
     nvars = M.ncols()
 
     M = M.augment(identity_matrix(neqs)*N)
     Mineq = identity_matrix(nvars).augment(zero_matrix(nvars, neqs))
+    Mineq = Mineq.stack(-Mineq)
+    bineq = [*lb] + [-x for x in ub]
 
-    model, X, f = _build_system(M, Mineq, b, lb, ub, **kwargs)
-    return model, X, lambda sol: f(sol)[:nvars]
+    problem, f = _build_system(M, Mineq, b, bineq, **kwargs)
+    return problem, lambda sol: f(sol)[:nvars]
 
 
 def solve_bounded_mod_gen(M, b, lb, ub, N, **kwargs):
@@ -256,8 +310,8 @@ def solve_bounded_mod_gen(M, b, lb, ub, N, **kwargs):
     *depending on the lp_bound parameter
     '''
 
-    model, X, f = _build_mod_system(M, b, lb, ub, N, **kwargs)
-    yield from map(f, gen_solutions(model, X))
+    problem, f = _build_mod_system(M, b, lb, ub, N, **kwargs)
+    yield from map(f, gen_solutions(problem, **kwargs))
 
 
 def solve_bounded_mod(M, b, lb, ub, N, **kwargs):
@@ -266,8 +320,8 @@ def solve_bounded_mod(M, b, lb, ub, N, **kwargs):
     M*x = b (mod N) where lb <= x <= ub
     '''
 
-    model, X, f = _build_mod_system(M, b, lb, ub, N, **kwargs)
-    return f(find_solution(model, X))
+    problem, f = _build_mod_system(M, b, lb, ub, N, **kwargs)
+    return f(find_solution(problem, **kwargs))
 
 
 def _build_bounded_lcg_system(a, b, m, lb, ub, **kwargs):
@@ -277,15 +331,17 @@ def _build_bounded_lcg_system(a, b, m, lb, ub, **kwargs):
 
     lb = vector(ZZ, lb) - B
     ub = vector(ZZ, ub) - B
+    bineq = [*lb] + [-x for x in ub]
 
     L = identity_matrix(n)*m
     L.set_column(0, [(a**i)%m for i in range(n)])
+    Mineq = L.stack(-L)
 
     # no equalities need to hold
     M = matrix(ZZ, 0, L.ncols())
 
-    model, X, f = _build_system(M, L, [], lb, ub, **kwargs)
-    return model, X, lambda sol: L*f(sol)+B
+    problem, f = _build_system(M, Mineq, [], bineq, **kwargs)
+    return problem, lambda sol: L*f(sol)+B
 
 
 def solve_bounded_lcg(a, b, m, lb, ub, **kwargs):
@@ -293,8 +349,8 @@ def solve_bounded_lcg(a, b, m, lb, ub, **kwargs):
     Solves for consecutive outputs of the LCG s[i+1]=(a*s[i]+b)%m
     where lb[i] <= s[i] <= ub[i]
     '''
-    model, X, f = _build_bounded_lcg_system(a, b, m, lb, ub, **kwargs)
-    return f(find_solution(model, X))
+    problem, f = _build_bounded_lcg_system(a, b, m, lb, ub, **kwargs)
+    return f(find_solution(problem, **kwargs))
 
 
 def solve_bounded_lcg_gen(a, b, m, lb, ub, **kwargs):
@@ -305,21 +361,21 @@ def solve_bounded_lcg_gen(a, b, m, lb, ub, **kwargs):
 
     *depending on the lp_bound parameter
     '''
-    model, X, f = _build_bounded_lcg_system(a, b, m, lb, ub, **kwargs)
-    yield from map(f, gen_solutions(model, X))
+    problem, f = _build_bounded_lcg_system(a, b, m, lb, ub, **kwargs)
+    yield from map(f, gen_solutions(problem, **kwargs))
 
 
-def solve_truncated_lcg(a, b, m, ys, ntrunc):
+def solve_truncated_lcg(a, b, m, ys, ntrunc, **kwargs):
     '''
     Solve for consecutive outputs of the LCG s[i+1]=(a*s[i]+b)%m
     where s[i] >> ntrunc = ys[i]
     '''
     lb = [y << ntrunc for y in ys]
     ub = [((y+1) << ntrunc)-1 for y in ys]
-    return solve_bounded_lcg(a, b, m, lb, ub)
+    return solve_bounded_lcg(a, b, m, lb, ub, **kwargs)
 
 
-def solve_truncated_lcg_gen(a, b, m, ys, ntrunc):
+def solve_truncated_lcg_gen(a, b, m, ys, ntrunc, **kwargs):
     '''
     Returns a generator yielding all* possible consecutive
     outputs of the LCG s[i+1]=(a*s[i]+b)%m where
@@ -329,4 +385,4 @@ def solve_truncated_lcg_gen(a, b, m, ys, ntrunc):
     '''
     lb = [y << ntrunc for y in ys]
     ub = [((y+1) << ntrunc)-1 for y in ys]
-    yield from solve_bounded_lcg_gen(a, b, m, lb, ub)
+    yield from solve_bounded_lcg_gen(a, b, m, lb, ub, **kwargs)

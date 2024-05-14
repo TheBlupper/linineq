@@ -8,13 +8,13 @@ from linineq import solve_ineq
 
 # this does not find *the* smallest i, that is unsolved
 # afaik. this only finds a single solution which is
-# 50 digits long, but you can go further by just throwing
+# 55 digits long, but you can go further by just throwing
 # more computing power at it
 
 # the best i've managed is 42 digits (with lp_bound=2):
 # 375100768340560904583476889463350224435184
 
-ndig = 50
+ndig = 55
 
 L = identity_matrix(ndig)
 for i in range(ndig-1):
@@ -23,10 +23,11 @@ L[0,0] = 13**37
 L = L[::-1, :]
 
 zero = ord('0')
-Mineq = L.stack(-L)
-bineq = vector([zero]*ndig + [-(zero+9)]*ndig)
-bineq[0] = zero+1 # first digit can't be 0
+lb = [zero+1] + [zero]*(ndig-1)
+ub = [zero+9]*ndig
 
+Mineq = L.stack(-L)
+bineq = lb + [-x for x in ub]
 sol = solve_ineq(Mineq, bineq, lp_bound=1)
 n = int(bytes(L*sol))
 print(n)
