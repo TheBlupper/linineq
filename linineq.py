@@ -171,6 +171,11 @@ def find_solution(problem, solver=ORTOOLS, lp_bound=100, **_):
     Finds a single solution to a problem instance
     '''
 
+    # checks if 0 >= b, in that case 0 is a solution
+    # since it's also part of the lattice
+    if all(x <= 0 for x in problem[1]):
+        return tuple([0]*problem[0].nrows())
+
     if solver == PPL:
         return _solve_ppl(problem, lp_bound)
     elif solver != ORTOOLS:
