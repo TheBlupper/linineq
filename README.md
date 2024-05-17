@@ -5,9 +5,11 @@
 ## Functions
 All $\le$ denote component-wise comparison.
 
- - `solve_bounded(M, Mineq, b, bineq)` solves $\mathbf{Mx} = \mathbf{b}$ and $\mathbf{M_{ineq}x} \ge \mathbf{b_{ineq}}$. This is the most general form of the problem.
+ - `solve_eq_ineq(M, Mineq, b, bineq)` solves $\mathbf{Mx} = \mathbf{b}$ and $\mathbf{M_{ineq}x} \ge \mathbf{b_{ineq}}$. This is the most general form of the problem.
 
  - `solve_ineq(Mineq, bineq)` solves $\mathbf{M_{ineq}x} \ge \mathbf{b_{ineq}}$
+
+ - `solve_bounded(M, b, lb, ub)` solves $\mathbf{Mx} = \mathbf{b}$ and $\mathbf{lb} \le \mathbf{x} \le \mathbf{ub}$.
 
  - `solve_bounded_mod(M, b, lb, ub, N)` solves $\mathbf{Mx} \equiv \mathbf{b} \pmod{N}$ and $\mathbf{lb} \le \mathbf{x} \le \mathbf{ub}$.
 

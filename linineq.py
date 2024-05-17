@@ -259,7 +259,7 @@ def _build_system(M, Mineq, b, bineq, reduction='LLL', bkz_block_size=20, **_):
     return (Mred, bineq), f
 
 
-def solve_bounded_gen(M, Mineq, b, bineq, **kwargs):
+def solve_eq_ineq_gen(M, Mineq, b, bineq, **kwargs):
     '''
     Returns a generetor yielding all* solutions to:
     M*x = b where Mineq*x >= bineq
@@ -271,7 +271,7 @@ def solve_bounded_gen(M, Mineq, b, bineq, **kwargs):
     yield from map(f, gen_solutions(problem, **kwargs))
 
 
-def solve_bounded(M, Mineq, b, bineq, **kwargs):
+def solve_eq_ineq(M, Mineq, b, bineq, **kwargs):
     '''
     Finds a solution to:
     M*x = b where Mineq*x >= bineq
@@ -291,7 +291,7 @@ def solve_ineq_gen(Mineq, bineq, **kwargs):
 
     # 0xn matrix, the kernel will be the nxn identity
     M = matrix(ZZ, 0, Mineq.ncols())
-    yield from solve_bounded_gen(M, Mineq, [], bineq, **kwargs)
+    yield from solve_eq_ineq_gen(M, Mineq, [], bineq, **kwargs)
 
 
 def solve_ineq(Mineq, bineq, **kwargs):
@@ -302,7 +302,39 @@ def solve_ineq(Mineq, bineq, **kwargs):
 
     # 0xn matrix, the kernel will be the nxn identity
     M = matrix(ZZ, 0, Mineq.ncols())
-    return solve_bounded(M, Mineq, [], bineq, **kwargs)
+    return solve_eq_ineq(M, Mineq, [], bineq, **kwargs)
+
+
+def _build_bounded_system(M, b, lb, ub, **kwargs):
+    assert len(lb) == len(ub) == M.ncols()
+
+    Mineq = identity_matrix(M.ncols())
+    Mineq = Mineq.stack(-Mineq)
+    bineq = [*lb] + [-x for x in ub]
+
+    return _build_system(M, Mineq, b, bineq, **kwargs)
+
+
+def solve_bounded_gen(M, b, lb, ub, **kwargs):
+    '''
+    Returns a generator yielding all* solutions to:
+    M*x = b where lb <= x <= ub
+
+    *depending on the lp_bound parameter
+    '''
+
+    problem, f = _build_bounded_system(M, b, lb, ub, **kwargs)
+    yield from map(f, gen_solutions(problem, **kwargs))
+
+
+def solve_bounded(M, b, lb, ub, **kwargs):
+    '''
+    Finds a solution to:
+    M*x = b where lb <= x <= ub
+    '''
+
+    problem, f = _build_bounded_system(M, b, lb, ub, **kwargs)
+    return f(find_solution(problem, **kwargs))
 
 
 def _build_mod_system(M, b, lb, ub, N, **kwargs):
