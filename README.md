@@ -28,9 +28,6 @@ Keyword arguments:
 
  - `bkz_block_size` (default `20`) is only applicable if `reduction='BKZ'`, and denotes the block size the BKZ algorithm should use.
 
- - `babai_prec` (default `None`) How many bits of precision FPYLLL's Babai algorithm should use. If `None` it is chosen heuristically, with a minimum of `4096` bits.
-
-
 ## Installation
 You will need `ortools` (`pip install ortools`) and [Sage](https://doc.sagemath.org/html/en/installation/index.html).
 
