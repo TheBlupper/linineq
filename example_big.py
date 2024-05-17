@@ -24,6 +24,10 @@ M = block_matrix([
      identity_matrix(n)*100],
 ])
 
+# making a custom inequality matrix which
+# doesn't restrict the size of the first n+1
+# columns and then using solve_eq_ineq runs
+# faster, but it's more inconvenient
 lb = [0] + [-p]*n + [-p//100]*n
 ub = [p] + [p]*n + [p//100]*n
 
