@@ -40,7 +40,7 @@ def babai(B, t):
         if abs(u[-1]) == 1:
             # *u[-1] cancels the sign to be positive
             # just in case
-            return t - (L[i]*u[-1])[:-1], -U[i][:-1]
+            return t - (L[i]*u[-1])[:-1], -u[:-1]
     else:
         raise ValueError('babai failed? plz msg @blupper on discord')
 
