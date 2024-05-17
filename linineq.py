@@ -2,32 +2,47 @@ import ppl
 import threading
 from warnings import warn
 from sage.misc.verbose import verbose
-from sage.all import vector, ZZ, matrix, identity_matrix, zero_matrix
+from sage.all import vector, ZZ, matrix, identity_matrix, zero_matrix, block_matrix
 from ortools.sat.python import cp_model as ort
 from queue import Queue
-from fpylll import IntegerMatrix, GSO, FPLLL
+
 
 ORTOOLS = 'ortools'
 PPL = 'ppl'
 
 
-def babai_fplll(M, tgt, prec=4096):
+def babai(B, t):
     '''
     Returns both the (approximate) closest vector
     to tgt and its coordinates in the already
     reduced lattice M
+
+    (this doesn't really do Babai's algorithm it's just LLL)
     '''
-    prev_prec = FPLLL.get_precision()
-    FPLLL.set_precision(prec)
 
-    Mf = IntegerMatrix.from_matrix(M)
-    G = GSO.Mat(Mf, float_type='mpfr')
-    G.update_gso()
-    w = vector(ZZ, G.babai(list(tgt)))
+    # fails if B is non-invertible or smth
+    # so we skip this and trust the user
+    #assert B.is_LLL_reduced()
+    
+    t = vector(ZZ, t)
 
-    FPLLL.set_precision(prev_prec)
-    return w*M, w
+    # an LLL reduced basis is ordered 
+    # by increasing norm
+    S = B[-1].norm().round()+1
 
+    L = block_matrix([
+        [B,         0],
+        [matrix(t), S]
+    ])
+    
+    L, U = L.LLL(transformation=True)
+    for i, u in enumerate(U):
+        if abs(u[-1]) == 1:
+            # *u[-1] cancels the sign to be positive
+            # just in case
+            return t - (L[i]*u[-1])[:-1], -U[i][:-1]
+    else:
+        raise ValueError('babai failed? plz msg @blupper on discord')
 
 def _cp_model(problem, lp_bound=100):
     M, b = problem
@@ -179,7 +194,7 @@ def find_solution(problem, solver=ORTOOLS, lp_bound=100, **_):
 
 
 # https://library.wolfram.com/infocenter/Books/8502/AdvancedAlgebra.pdf page 80
-def _build_system(M, Mineq, b, bineq, reduction='LLL', bkz_block_size=20, babai_prec=None, **_):
+def _build_system(M, Mineq, b, bineq, reduction='LLL', bkz_block_size=20, **_):
     '''
     Returns a tuple (problem, f) where problem is a tuple of the form (M, b)
     where a solution to x*M >= b is sought, and f is a function that will
@@ -219,12 +234,8 @@ def _build_system(M, Mineq, b, bineq, reduction='LLL', bkz_block_size=20, babai_
 
     bineq = vector(ZZ, bineq) - Mineq*s
 
-    if babai_prec is None:
-        # very heuristic, lmk if this causes issues
-        babai_prec = max(4096, 2*Mred.norm().round().nbits())
-
-    verbose(f'running babai with {babai_prec} bits of precision', level=1)
-    bineq_cv, bineq_coord = babai_fplll(Mred, bineq, prec=int(babai_prec))
+    verbose('running babai', level=1)
+    bineq_cv, bineq_coord = babai(Mred, bineq)
     bineq -= bineq_cv
 
     # we then let a solver find an integer solution to
