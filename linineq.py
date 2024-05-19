@@ -84,7 +84,10 @@ def _solve_ppl(problem, lp_bound=100):
 
     prob = ppl.MIP_Problem(len(X), cs, 0)
     prob.add_to_integer_space_dimensions(ppl.Variables_Set(X[0], X[-1]))
-    gen = prob.optimizing_point()
+    try:
+        gen = prob.optimizing_point()
+    except ValueError:
+        raise ValueError('no solution found')
 
     assert gen.is_point() and gen.divisor() == 1
     return tuple(ZZ(c) for c in gen.coefficients())
@@ -194,7 +197,7 @@ def find_solution(problem, solver=ORTOOLS, lp_bound=100, **_):
     if status == ort.MODEL_INVALID:
         print(model.Validate())
     if status not in [ort.OPTIMAL, ort.FEASIBLE]:
-        raise ValueError('No solution found')
+        raise ValueError('no solution found')
     return tuple(slvr.Value(v) for v in X)
 
 
@@ -212,19 +215,41 @@ def _build_system(M, Mineq, b, bineq, reduction='LLL', bkz_block_size=20, **_):
 
     # find unbounded solution
     D, U, V = M.smith_form()
-    s = V*D.solve_right(U*vector(ZZ, b))
     try:
+        s = V*D.solve_right(U*vector(ZZ, b))
         s = s.change_ring(ZZ)
-    except TypeError:
+    except (TypeError, ValueError):
         raise ValueError('no solution (even without bounds)')
 
     ker = M.right_kernel_matrix().change_ring(ZZ)
 
     # switch to left multiplication
     Mker = ker*Mineq.T
-    
+
     if Mker.rank() < Mker.nrows():
         warn('underdetermined inequalities, beware of many solutions')
+
+    # degenerate case
+    if Mker.ncols() == 0: 
+        Mred = matrix([[0]*ker.nrows()]).T
+        bred = vector([0])
+
+        def f(sol):
+            verbose(f'solution paramaters: {sol}', level=1)
+            return vector(ZZ, sol)*ker + s
+    
+        return (Mred, bred), f
+
+    if Mker.nrows() == 0:
+        warn('fully determined equalities, no enumeration will occur')
+        Mred = matrix([[1, -1]])
+
+        if all(a>=b for a, b in zip(Mineq*s, bineq)):
+            bred = vector([0, 0]) # one solution
+        else:
+            bred = vector([0, 1]) # no solutions
+
+        return (Mred, bred), lambda _: s
 
     # using BKZ instead might help in some cases
     if reduction == 'LLL':
@@ -246,7 +271,7 @@ def _build_system(M, Mineq, b, bineq, reduction='LLL', bkz_block_size=20, **_):
     # we then let a solver find an integer solution to
     # x*Mred >= bineq
     
-    # precompute the operation (x+v)*R*ker + s
+    # precompute the operation (x+bineq_coord)*R*ker + s
     # as x*T + c
     T = R*ker
     c = bineq_coord*T + s
@@ -257,6 +282,63 @@ def _build_system(M, Mineq, b, bineq, reduction='LLL', bkz_block_size=20, **_):
 
     verbose('model processing done', level=1)
     return (Mred, bineq), f
+
+
+class LinineqSolver:
+    '''
+    Helper class for setting up systems of
+    linear equalities/inequalities and solving them
+
+    See example usage in example_solver.py
+    '''
+    def __init__(self, polyring):
+        assert polyring.base_ring() is ZZ
+        self.polyring = polyring
+        self.vars = polyring.gens()
+
+        self.eqs_lhs = [] # matrix of integers
+        self.eqs_rhs = [] # vector of integers
+
+        self.ineqs_lhs = [] # matrix of integers
+        self.ineqs_rhs = [] # vector of integers
+    
+    def eq(self, lhs, rhs):
+        poly = self.polyring(lhs - rhs)
+        assert poly.degree() <= 1
+        self.eqs_lhs.append([poly.coefficient(v) for v in self.vars])
+        self.eqs_rhs.append(-poly.constant_coefficient())
+
+    def ge(self, lhs, rhs):
+        poly = self.polyring(lhs - rhs)
+        assert poly.degree() <= 1
+        self.ineqs_lhs.append([poly.coefficient(v) for v in self.vars])
+        self.ineqs_rhs.append(-poly.constant_coefficient())
+
+    def gt(self, lhs, rhs):
+        self.ge(lhs, rhs+1)
+    
+    def le(self, lhs, rhs):
+        self.ge(rhs, lhs)
+
+    def lt(self, lhs, rhs):
+        self.ge(rhs, lhs+1)
+
+    def _to_system(self, **kwargs):
+        dim = len(self.vars)
+
+        M = matrix(ZZ, len(self.eqs_lhs), dim, self.eqs_lhs)
+        Mineq = matrix(ZZ, len(self.ineqs_rhs), dim, self.ineqs_lhs)
+
+        problem, f = _build_system(M, Mineq, self.eqs_rhs, self.ineqs_rhs, **kwargs)
+        return problem, lambda sol: {v: x for v, x in zip(self.vars, f(sol))}
+    
+    def solve(self, **kwargs):
+        problem, f = self._to_system(**kwargs)
+        return f(find_solution(problem, **kwargs))
+    
+    def solve_gen(self, **kwargs):
+        problem, f = self._to_system(**kwargs)
+        yield from map(f, gen_solutions(problem, **kwargs))
 
 
 def solve_eq_ineq_gen(M, Mineq, b, bineq, **kwargs):
