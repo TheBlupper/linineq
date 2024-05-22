@@ -40,9 +40,8 @@ def babai(B, t):
         if abs(u[-1]) == 1:
             # *u[-1] cancels the sign to be positive
             # just in case
-            return t - (L[i]*u[-1])[:-1], -u[:-1]*u[-1]
-    else:
-        raise ValueError('babai failed? plz msg @blupper on discord')
+            return t - L[i][:-1]*u[-1], -u[:-1]*u[-1]
+    raise ValueError('babai failed? plz msg @blupper on discord')
 
 def _cp_model(problem, lp_bound=100):
     M, b = problem
