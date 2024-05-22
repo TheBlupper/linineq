@@ -14,13 +14,13 @@ PPL = 'ppl'
 def babai(B, t):
     '''
     Returns both the (approximate) closest vector
-    to tgt and its coordinates in the already
+    to t and its coordinates in the already
     reduced lattice M
 
     (this doesn't really do Babai's algorithm it's just LLL)
     '''
 
-    # fails if B is non-invertible or smth
+    # this is slow and fails if B has zero-rows
     # so we skip this and trust the user
     #assert B.is_LLL_reduced()
     
@@ -40,7 +40,7 @@ def babai(B, t):
         if abs(u[-1]) == 1:
             # *u[-1] cancels the sign to be positive
             # just in case
-            return t - (L[i]*u[-1])[:-1], -u[:-1]
+            return t - (L[i]*u[-1])[:-1], -u[:-1]*u[-1]
     else:
         raise ValueError('babai failed? plz msg @blupper on discord')
 
