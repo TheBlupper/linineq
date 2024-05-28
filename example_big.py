@@ -19,9 +19,7 @@ As = [(a**i) % p for i in range(n)]
 Bs = [(b*(a**i-1)//(a-1)) % p for i in range(n)]
 
 M = block_matrix([
-    [column_matrix(As),
-     identity_matrix(n)*p,
-     identity_matrix(n)*100],
+    [column_matrix(As), p, 100],
 ])
 
 # making a custom inequality matrix which
