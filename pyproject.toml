@@ -1,0 +1,10 @@
+[project]
+name = "linineq"
+description = "Functions for solving linear inequalities in integers"
+readme = "README.md"
+version = "0.0.1"
+dependencies = []
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
