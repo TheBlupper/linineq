@@ -33,4 +33,9 @@ Keyword arguments:
 ## Installation
 You will need `ortools` (`pip install ortools`) and [Sage](https://doc.sagemath.org/html/en/installation/index.html).
 
-Then either manually download [linineq.py](./linineq.py), or if you're feeling trusting just type `load('https://raw.githubusercontent.com/TheBlupper/linineq/main/linineq.py')` into Sage (no guarantees that functionality won't change in the future though).
+Then either
+ - `pip install git+https://github.com/TheBlupper/linineq.git`
+
+ - Type `load('https://raw.githubusercontent.com/TheBlupper/linineq/main/linineq.py')` in Sage
+
+ - Or manually download [linineq.py](./linineq.py)
