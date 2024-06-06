@@ -11,20 +11,16 @@ ORTOOLS = 'ortools'
 PPL = 'ppl'
 
 
-def babai(B, t):
+def cvp_coords(B, t, reduce=True):
     '''
     Returns both the (approximate) closest vector
-    to t and its coordinates in the already
-    reduced lattice M
-
-    (this doesn't really do Babai's algorithm it's just LLL)
+    to t and its coordinates in the lattice B
     '''
 
-    # this is slow and fails if B has zero-rows
-    # so we skip this and trust the user
-    #assert B.is_LLL_reduced()
-    
     t = vector(ZZ, t)
+
+    if reduce: B, R = B.LLL(transformation=True)
+    else: R = identity_matrix(ZZ, B.nrows())
 
     # an LLL reduced basis is ordered 
     # by increasing norm
@@ -36,12 +32,17 @@ def babai(B, t):
     ])
     
     L, U = L.LLL(transformation=True)
-    for i, u in enumerate(U):
+    for u, v in zip(U, L):
         if abs(u[-1]) == 1:
             # *u[-1] cancels the sign to be positive
             # just in case
-            return t - L[i][:-1]*u[-1], -u[:-1]*u[-1]
-    raise ValueError('babai failed? plz msg @blupper on discord')
+            return t - v[:-1]*u[-1], -u[:-1]*u[-1]*R
+    raise ValueError("babai failed? plz msg @blupper on discord (unless you didn't reduce?)")
+
+
+def cvp(B, t, reduce=True):
+    return cvp_coords(B, t, reduce)[0]
+
 
 def _cp_model(problem, lp_bound=100):
     M, b = problem
@@ -263,8 +264,8 @@ def _build_system(M, Mineq, b, bineq, reduction='LLL', bkz_block_size=20, **_):
 
     bineq = vector(ZZ, bineq) - Mineq*s
 
-    verbose('running babai', level=1)
-    bineq_cv, bineq_coord = babai(Mred, bineq)
+    verbose('running cvp', level=1)
+    bineq_cv, bineq_coord = cvp_coords(Mred, bineq, reduce=False)
     bineq -= bineq_cv
 
     # we then let a solver find an integer solution to
