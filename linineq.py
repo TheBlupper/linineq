@@ -11,7 +11,25 @@ ORTOOLS = 'ortools'
 PPL = 'ppl'
 
 
-def cvp_coords(B, t, reduce=True):
+def LLL(*args, **kwargs):
+    kwargs['transformation'] = True
+    def wrap(M):
+        return M.LLL(*args, **kwargs) # tuple of (L, U)
+    return wrap
+
+
+def BKZ(*args, **kwargs):
+    def wrap(M):
+        L = M.BKZ(*args, **kwargs)
+        # TODO: try to find integer solution if non-empty kernel
+        U = M.solve_left(L).change_ring(ZZ)
+        # fpylll will support BKZ transformation matrices
+        # in the next update
+        return L, U
+    return wrap
+
+
+def cvp_coords(B, t, should_reduce=True, reduce=LLL()):
     '''
     Returns both the (approximate) closest vector
     to t and its coordinates in the lattice B
@@ -19,7 +37,7 @@ def cvp_coords(B, t, reduce=True):
 
     t = vector(ZZ, t)
 
-    if reduce: B, R = B.LLL(transformation=True)
+    if should_reduce: B, R = reduce(B)
     else: R = identity_matrix(ZZ, B.nrows())
 
     # an LLL reduced basis is ordered 
@@ -42,24 +60,6 @@ def cvp_coords(B, t, reduce=True):
 
 def cvp(B, t, reduce=True):
     return cvp_coords(B, t, reduce)[0]
-
-
-def LLL(*args, **kwargs):
-    kwargs['transformation'] = True
-    def wrap(M):
-        return M.LLL(*args, **kwargs) # tuple of (L, U)
-    return wrap
-
-
-def BKZ(*args, **kwargs):
-    def wrap(M):
-        L = M.BKZ(*args, **kwargs)
-        # TODO: try to find integer solution if non-empty kernel
-        U = M.solve_left(L).change_ring(ZZ)
-        # fpylll will support BKZ transformation matrices
-        # in the next update
-        return L, U
-    return wrap
 
 
 def _cp_model(problem, lp_bound=100):
@@ -274,7 +274,7 @@ def _build_system(M, Mineq, b, bineq, reduce=LLL(), **_):
     bineq = vector(ZZ, bineq) - Mineq*s
 
     verbose('running cvp', level=1)
-    bineq_cv, bineq_coord = cvp_coords(Mred, bineq, reduce=False)
+    bineq_cv, bineq_coord = cvp_coords(Mred, bineq, should_reduce=False, reduce=reduce)
     bineq -= bineq_cv
 
     # we then let a solver find an integer solution to
