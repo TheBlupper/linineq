@@ -26,7 +26,7 @@ Keyword arguments:
  - `lp_bound` (default `100`) is an internal restriction on the size of the unknowns for the linear programming step, and is currently only used by `ortools`. This does *not* correspond to the size of the solutions you will find, rather the size of the coefficients a lattice-reduced matrix is multiplied by. You can often get by with surprisingly small values for `lp_bound` (e.g. `5`).<br><br>
  If you're unsure what to set `lp_bound` to you can call `set_verbose(1)` before solving an instance. It will then log what internal coefficients where used to find that solution. These will be `<= lp_bound` and `>= -lp_bound`.
 
- - `reduction` (default `'LLL'`) is one of `'LLL'` and `'BKZ'` and denotes which lattice reduction algorithm to use.
+ - `reduce` (default `LLL()`) is a function which will be used to reduce a lattice basis. The wrapper functions `LLL` and `BKZ` are provided for convenience, they will pass on any arguments to the underlying function, use them like `solve_bounded(..., reduce=BKZ(block_size=20))`. The passed function should accept a matrix and return a tuple `(L, U)` of the reduced lattice basis together with the corresponding transformation matrix.
 
  - `bkz_block_size` (default `20`) is only applicable if `reduction='BKZ'`, and denotes the block size the BKZ algorithm should use.
 

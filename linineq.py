@@ -44,6 +44,24 @@ def cvp(B, t, reduce=True):
     return cvp_coords(B, t, reduce)[0]
 
 
+def LLL(*args, **kwargs):
+    kwargs['transformation'] = True
+    def wrap(M):
+        return M.LLL(*args, **kwargs) # tuple of (L, U)
+    return wrap
+
+
+def BKZ(*args, **kwargs):
+    def wrap(M):
+        L = M.BKZ(*args, **kwargs)
+        # TODO: try to find integer solution if non-empty kernel
+        U = M.solve_left(L).change_ring(ZZ)
+        # fpylll will support BKZ transformation matrices
+        # in the next update
+        return L, U
+    return wrap
+
+
 def _cp_model(problem, lp_bound=100):
     M, b = problem
 
@@ -202,7 +220,7 @@ def find_solution(problem, solver=ORTOOLS, lp_bound=100, **_):
 
 
 # https://library.wolfram.com/infocenter/Books/8502/AdvancedAlgebra.pdf page 80
-def _build_system(M, Mineq, b, bineq, reduction='LLL', bkz_block_size=20, **_):
+def _build_system(M, Mineq, b, bineq, reduce=LLL(), **_):
     '''
     Returns a tuple (problem, f) where problem is a tuple of the form (M, b)
     where a solution to x*M >= b is sought, and f is a function that will
@@ -251,16 +269,7 @@ def _build_system(M, Mineq, b, bineq, reduction='LLL', bkz_block_size=20, **_):
 
         return (Mred, bred), lambda _: s
 
-    # using BKZ instead might help in some cases
-    if reduction == 'LLL':
-        Mred, R = Mker.LLL(transformation=True)
-    elif reduction == 'BKZ':
-        Mred = Mker.BKZ(block_size=bkz_block_size)
-
-        # BKZ doesnt provide a transformation matrix
-        # Mker is not always invertible hence we use solve_left
-        R = Mker.solve_left(Mred).change_ring(ZZ)
-    else: raise ValueError(f"reduction must be 'LLL' or 'BKZ', not {reduction!r}")
+    Mred, R = reduce(Mker)
 
     bineq = vector(ZZ, bineq) - Mineq*s
 
