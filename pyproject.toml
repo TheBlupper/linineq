@@ -3,7 +3,7 @@ name = "linineq"
 description = "Functions for solving linear inequalities in integers"
 readme = "README.md"
 version = "0.0.1"
-dependencies = []
+dependencies = ["ortools"]
 
 [build-system]
 requires = ["setuptools"]
