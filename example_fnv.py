@@ -1,5 +1,5 @@
 from sage.all import matrix
-from linineq import solve_bounded_mod_gen
+from linineq import solve_bounded_mod_gen, BKZ
 
 # adapted from https://connor-mccartney.github.io/cryptography/other/Trying-to-crack-COD-FNV-hashes
 FNV_INIT = 0xCBF29CE484222325
@@ -31,7 +31,7 @@ def solve(target, n):
     # lp_bound could maybe be increased slightly if the
     # solution isn't found
     for sol in solve_bounded_mod_gen(
-        M, [target - hsh*p**n], [-128]*n, [128]*n, 2**64, lp_bound=10
+        M, [target - hsh*p**n], [-128]*n, [128]*n, 2**64, lp_bound=10, reduce=BKZ()
     ):
         ret = rev(sol)
         if ret is None: continue

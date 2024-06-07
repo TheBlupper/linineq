@@ -1,7 +1,7 @@
 from sage.all import *
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
-from linineq import solve_bounded
+from linineq import *
 
 # "Lucky Roll" from osu!gaming CTF 2024
 # this problem is too large for ortools
@@ -29,7 +29,7 @@ M = block_matrix([
 lb = [0] + [-p]*n + [-p//100]*n
 ub = [p] + [p]*n + [p//100]*n
 
-sol = solve_bounded(M, vector([(t-b)%p for t, b in zip(trunc, Bs)]), lb, ub)
+sol = solve_bounded(M, vector([(t-b)%p for t, b in zip(trunc, Bs)]), lb, ub, reduce=BKZ())
 s = sol[0]
 
 def lcg():
