@@ -29,7 +29,7 @@ M = block_matrix([
 lb = [0] + [-p]*n + [-p//100]*n
 ub = [p] + [p]*n + [p//100]*n
 
-sol = solve_bounded(M, vector([(t-b)%p for t, b in zip(trunc, Bs)]), lb, ub, reduce=BKZ())
+sol = solve_bounded(M, vector([(t-b)%p for t, b in zip(trunc, Bs)]), lb, ub)
 s = sol[0]
 
 def lcg():
