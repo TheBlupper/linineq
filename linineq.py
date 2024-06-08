@@ -29,7 +29,7 @@ def BKZ(*args, **kwargs):
     return wrap
 
 
-def cvp_coords(B, t, should_reduce=True, reduce=LLL()):
+def cvp_coords(B, t, is_reduced=False, reduce=LLL()):
     '''
     Returns both the (approximate) closest vector
     to t and its coordinates in the lattice B
@@ -37,7 +37,7 @@ def cvp_coords(B, t, should_reduce=True, reduce=LLL()):
 
     t = vector(ZZ, t)
 
-    if should_reduce: B, R = reduce(B)
+    if not is_reduced: B, R = reduce(B)
     else: R = identity_matrix(ZZ, B.nrows())
 
     # an LLL reduced basis is ordered 
@@ -58,8 +58,8 @@ def cvp_coords(B, t, should_reduce=True, reduce=LLL()):
     raise ValueError("babai failed? plz msg @blupper on discord (unless you didn't reduce?)")
 
 
-def cvp(B, t, reduce=True):
-    return cvp_coords(B, t, reduce)[0]
+def cvp(B, t, is_reduced=False, reduce=LLL()):
+    return cvp_coords(B, t, is_reduced, reduce)[0]
 
 
 def _cp_model(problem, lp_bound=100):
@@ -274,7 +274,7 @@ def _build_system(M, Mineq, b, bineq, reduce=LLL(), **_):
     bineq = vector(ZZ, bineq) - Mineq*s
 
     verbose('running cvp', level=1)
-    bineq_cv, bineq_coord = cvp_coords(Mred, bineq, should_reduce=False, reduce=reduce)
+    bineq_cv, bineq_coord = cvp_coords(Mred, bineq, is_reduced=True, reduce=reduce)
     bineq -= bineq_cv
 
     # we then let a solver find an integer solution to

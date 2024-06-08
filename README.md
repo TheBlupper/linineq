@@ -30,6 +30,13 @@ Keyword arguments:
 
  - `bkz_block_size` (default `20`) is only applicable if `reduction='BKZ'`, and denotes the block size the BKZ algorithm should use.
 
+Included are also the following utility functions:
+ - `cvp(B, t)` finds an approximate closest vector to $\mathbf{t}$ in the lattice $\mathbf{B}$
+
+ - `cvp_coord(B, t)` finds an approximate closest vector $\mathbf{v}$ to the vector $\mathbf{t}$ in the lattice $\mathbf{B}$ and returns a tuple $(\mathbf{v}, \mathbf{u})$ where $\mathbf{u B} = \mathbf{v}$.
+
+Both of these take the arguments `is_reduced` (default `False`) and `reduce` (default `LLL()`). `is_reduced` indicates if the lattice has already been reduced, if this is `True` properties of an LLL-reduced basis will be assumed.
+
 ## Installation
 You will need `ortools` (`pip install ortools`) and [Sage](https://doc.sagemath.org/html/en/installation/index.html).
 
