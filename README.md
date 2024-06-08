@@ -11,7 +11,7 @@ All $\le$ denote component-wise comparison.
 
  - `solve_bounded(M, b, lb, ub)` solves $\mathbf{Mx} = \mathbf{b}$ and $\mathbf{lb} \le \mathbf{x} \le \mathbf{ub}$.
 
- - `solve_bounded_mod(M, b, lb, ub, N)` solves $\mathbf{Mx} \equiv \mathbf{b}\ (\mod{N})$ and $\mathbf{lb} \le \mathbf{x} \le \mathbf{ub}$.
+ - `solve_bounded_mod(M, b, lb, ub, N)` solves $\mathbf{Mx} \equiv \mathbf{b}\ (\bmod{\ N})$ and $\mathbf{lb} \le \mathbf{x} \le \mathbf{ub}$.
 
  - `solve_bounded_lcg(a, b, m, lb, ub)` solves for $n$ consecutive outputs $\mathbf{s}=(s_0, s_1, ..., s_{n-1})$ of the LCG given by $s_{i+1} \equiv a s_i + b \pmod{m}$ where $\mathbf{lb} \le \mathbf{s} \le \mathbf{ub}$.
 
