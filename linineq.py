@@ -1,31 +1,46 @@
 import ppl
 import threading
+import subprocess
+
+from ast import literal_eval
 from warnings import warn
-from sage.misc.verbose import verbose
-from sage.all import vector, ZZ, matrix, identity_matrix, zero_matrix, block_matrix
-from ortools.sat.python import cp_model as ort
 from queue import Queue
+
+from sage.misc.verbose import verbose
+from sage.all import vector, ZZ, matrix, identity_matrix, zero_matrix, block_matrix, pari
+from ortools.sat.python import cp_model as ort
 
 
 ORTOOLS = 'ortools'
 PPL = 'ppl'
 
+FPLLL_PATH = 'fplll'
 
-def LLL(*args, **kwargs):
-    kwargs['transformation'] = True
+
+def _sage_to_fplll(M):
+    return '[' + '\n'.join('[' + ' '.join(map(str, row)) + ']' for row in M) + ']'
+
+
+def _fplll_to_sage(s):
+    return matrix(ZZ, literal_eval(s.strip()))
+
+
+def BKZ(block_size=20):
+    assert block_size >= 1
     def wrap(M):
-        return M.LLL(*args, **kwargs) # tuple of (L, U)
+        if M.nrows() > M.ncols():
+            raise ValueError('BKZ is broken for matrices where nrows > ncols, '
+                             'see https://github.com/fplll/fplll/issues/525')
+        res = subprocess.check_output(f'{FPLLL_PATH} -a bkz -b {block_size} -of uk'.split(),
+            input=_sage_to_fplll(M).encode()).decode()
+        U = _fplll_to_sage(res)
+        return U*M, U
     return wrap
 
 
-def BKZ(*args, **kwargs):
+def LLL(**kwargs):
     def wrap(M):
-        L = M.BKZ(*args, **kwargs)
-        # TODO: try to find integer solution if non-empty kernel
-        U = M.solve_left(L).change_ring(ZZ)
-        # fpylll will support BKZ transformation matrices
-        # in the next update
-        return L, U
+        return M.LLL(transformation=True, **kwargs)
     return wrap
 
 
@@ -239,6 +254,7 @@ def _build_system(M, Mineq, b, bineq, reduce=LLL(), **_):
     except (TypeError, ValueError):
         raise ValueError('no solution (even without bounds)')
 
+    # TODO faster kernel finding
     ker = M.right_kernel_matrix().change_ring(ZZ)
 
     # switch to left multiplication
