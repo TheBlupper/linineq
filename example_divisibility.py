@@ -28,7 +28,7 @@ ub = [zero+9]*ndig
 
 Mineq = L.stack(-L)
 bineq = lb + [-x for x in ub]
-sol = solve_ineq(Mineq, bineq, lp_bound=1)
+sol = solve_ineq(Mineq, bineq, lp_bound=1, solver='ortools')
 n = int(bytes(L*sol))
 print(n)
 assert bytes_to_long(str(n).encode()) % 13**37 == 0
