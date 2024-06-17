@@ -269,8 +269,7 @@ def _build_system(M, Mineq, b, bineq, reduce=LLL(), **_):
     except (TypeError, ValueError):
         raise ValueError('no solution (even without bounds)')
 
-    # TODO faster kernel finding
-    ker = M.right_kernel_matrix().change_ring(ZZ)
+    ker = M.right_kernel_matrix(algorithm='pari').change_ring(ZZ)
 
     # switch to left multiplication
     Mker = ker*Mineq.T
