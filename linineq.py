@@ -7,8 +7,12 @@ from warnings import warn
 from queue import Queue
 
 from sage.misc.verbose import verbose
-from sage.all import vector, ZZ, matrix, identity_matrix, zero_matrix, block_matrix, pari
-from ortools.sat.python import cp_model as ort
+from sage.all import vector, ZZ, matrix, identity_matrix, zero_matrix, block_matrix
+
+try:
+    from ortools.sat.python import cp_model as ort
+except ImportError:
+    ort = None
 
 
 ORTOOLS = 'ortools'
@@ -31,7 +35,7 @@ def BKZ(block_size=20):
         if M.nrows() > M.ncols():
             raise ValueError('BKZ is broken for matrices where nrows > ncols, '
                              'see https://github.com/fplll/fplll/issues/525')
-        res = subprocess.check_output(f'{FPLLL_PATH} -a bkz -b {block_size} -of uk'.split(),
+        res = subprocess.check_output(f'{FPLLL_PATH} -a bkz -b {int(block_size)} -of uk'.split(),
             input=_sage_to_fplll(M).encode()).decode()
         U = _fplll_to_sage(res)
         return U*M, U
@@ -64,7 +68,7 @@ def cvp_coords(B, t, is_reduced=False, reduce=LLL()):
         [matrix(t), S]
     ])
     
-    L, U = L.LLL(transformation=True)
+    L, U = reduce(L)
     for u, v in zip(U, L):
         if abs(u[-1]) == 1:
             # *u[-1] cancels the sign to be positive
@@ -126,28 +130,29 @@ def _solve_ppl(problem, lp_bound=100):
     return tuple(ZZ(c) for c in gen.coefficients())
 
 
-def gen_solutions(problem, solver=ORTOOLS, lp_bound=100, **_):
+def gen_solutions(problem, solver=None, lp_bound=100, **_):
     '''
     Return a generator which yields all solutions to a
     problem instance, this will be slower at finding a single
     solution because ortools can't parallelize the search
     '''
 
+    # solver parameter is a little redundant here since
+    # only ortools is supported, kept here for future possibilities
+
     if solver == PPL:
-        warn("using ppl which doesn't support enumeration, only one solution "
-             "will be returned")
-        yield _solve_ppl(problem, lp_bound)
-        return
-    elif solver != ORTOOLS:
+        raise ValueError('ppl does not support enumeration')
+    elif solver is not None and solver != ORTOOLS:
         raise ValueError(f'unknown solver {solver!r}')
+    
+    if ort is None:
+        raise ImportError('ortools is needed for enumeration but is not installed,'
+                         ' install with `pip install ortools`')
 
     try:
         model, X = _cp_model(problem, lp_bound)
     except OverflowError:
-        warn("instance too large for ortools, falling back to ppl which "
-             "doesn't support enumeration, only one solution will be returned")
-        yield find_solution(problem, solver, lp_bound)
-        return
+        raise ValueError('problem too large for ortools, enumeration not possible')
 
     _validate_model(model)
 
@@ -185,41 +190,51 @@ def _solver_thread(model, X, queue, search_event, stop_event):
     queue.put(None)
 
 
-class _SolutionCollector(ort.CpSolverSolutionCallback):
-    def __init__(self, X, queue, search_event, stop_event):
-        super().__init__()
-        self.X = X
-        self.queue = queue
-        self.search_event = search_event
-        self.stop_event = stop_event
+if ort is not None:
+    class _SolutionCollector(ort.CpSolverSolutionCallback):
+        def __init__(self, X, queue, search_event, stop_event):
+            super().__init__()
+            self.X = X
+            self.queue = queue
+            self.search_event = search_event
+            self.stop_event = stop_event
 
-    def on_solution_callback(self):
-        self.queue.put(tuple(self.Value(x) for x in self.X))
-        self.search_event.wait()
-        self.search_event.clear()
-        if self.stop_event.is_set():
-            self.StopSearch()
-            return
+        def on_solution_callback(self):
+            self.queue.put(tuple(self.Value(x) for x in self.X))
+            self.search_event.wait()
+            self.search_event.clear()
+            if self.stop_event.is_set():
+                self.StopSearch()
+                return
 
 
-def find_solution(problem, solver=ORTOOLS, lp_bound=100, **_):
+def find_solution(problem, solver=None, lp_bound=100, **_):
     '''
     Finds a single solution to a problem instance
     '''
 
     # checks if 0 >= b, in that case 0 is a solution
-    # since it's also part of the lattice
+    # since it's always part of the lattice
     if all(x <= 0 for x in problem[1]):
+        verbose('trivial solution found, no linear programming used', level=1)
         return tuple([0]*problem[0].nrows())
 
-    if solver == PPL:
+    if solver == PPL or (solver is None and ort is None):
         return _solve_ppl(problem, lp_bound)
-    elif solver != ORTOOLS:
+    
+    if solver is not None and solver != ORTOOLS:
         raise ValueError(f'unknown solver {solver!r}')
+    
+    if ort is None:
+        raise ImportError('ortools is not installed, install with `pip install ortools`')
 
     try:
         model, X = _cp_model(problem, lp_bound)
     except OverflowError:
+        # if the user explicitly requested ortools we throw
+        if solver == ORTOOLS:
+            raise ValueError('problem too large for ortools')
+        # otherwise we fall back to ppl
         verbose('instance too large for ortools, falling back to ppl', level=1)
         return _solve_ppl(problem, lp_bound)
 
