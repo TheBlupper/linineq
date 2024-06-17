@@ -28,8 +28,6 @@ Keyword arguments:
 
  - `reduce` (default `LLL()`) is a function which will be used to reduce a lattice basis. The wrapper functions `LLL` and `BKZ` are provided for convenience, they will pass on any arguments to the underlying function, use them like `solve_bounded(..., reduce=BKZ(block_size=20))`. The passed function should accept a matrix and return a tuple `(L, U)` of the reduced lattice basis together with the corresponding transformation matrix.
 
- - `bkz_block_size` (default `20`) is only applicable if `reduction='BKZ'`, and denotes the block size the BKZ algorithm should use.
-
 Included are also the following utility functions:
  - `cvp(B, t)` finds an approximate closest vector to $\mathbf{t}$ in the lattice $\mathbf{B}$
 
