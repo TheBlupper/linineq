@@ -3,7 +3,7 @@ from linineq import *
 from itertools import product
 
 reds = [wBKZ(), wLLL(), wflatter()]
-cvps = [wbabai_cvp(), wfplll_cvp()] + [wkannan_cvp(reduce=red) for red in reds]
+cvps = [wrounding_cvp(), wbabai_cvp(), wfplll_cvp()] + [wkannan_cvp(reduce=red) for red in reds]
 
 mask = 3473400794307473
 m = 1 << 52
