@@ -125,10 +125,10 @@ def kannan_cvp(B, t, is_reduced=False, reduce=wLLL(), coords=False):
     to t and its coordinates in the lattice B
     '''
 
-    t = vector(ZZ, t)
-
     if not is_reduced: B, R = reduce(B, transformation=True)
     else: R = identity_matrix(ZZ, B.nrows())
+
+    t = vector(ZZ, t)
 
     # an LLL reduced basis is ordered 
     # by increasing norm
