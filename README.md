@@ -64,7 +64,7 @@ Each of these has a wrapper variant (e.g `wbabai_cvp`) which makes it easy to sp
 
 
 ## Installation
-You will need `ortools` (`pip install ortools`) and [Sage](https://doc.sagemath.org/html/en/installation/index.html).
+You will need [Sage](https://doc.sagemath.org/html/en/installation/index.html), and you can optionally `pip install ortools` which allows for enumerating solutions and is often faster than `ppl` (which comes bundled with Sage).
 
 Then either
  - `pip install git+https://github.com/TheBlupper/linineq.git`
