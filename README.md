@@ -37,7 +37,7 @@ Keyword arguments:
 
  - `LLL(M, transformation=False)` returns the LLL reduction of $\mathbf{M}$. This is just a wrapper around `M.LLL()` and is only here for consistency.
 
-Each of these has a wrapper variant (e.g `wBKZ`) which makes it easy to specify reduction parameters when passing the `reduce` argument to solvers, see `reduce` above.
+Each of these has a wrapper variant (e.g `wBKZ`) which makes it easy to specify reduction parameters when passing the `reduce` argument to solvers, see the `reduce` parameter above.
 
 The `transformation` parameter indicates if the function should instead return the tuple $(\mathbf{L}, \mathbf{R})$ where $\mathbf{L}$ is the reduced lattice basis and $\mathbf{R M} = \mathbf{L}$.
 
@@ -60,7 +60,7 @@ Each of these accept the following keyword arguments:
 
  - `coords` (default `False`) if `True` a tuple $(\mathbf{u}, \mathbf{v})$ will instead be returned where $\mathbf{u} = \mathbf{v B}$ and $\mathbf{u}$ is the closest (approximate) vector to $\mathbf{t}$.
 
-Each of these has a wrapper variant (e.g `wbabai_cvp`) which makes it easy to specify parameters when passing the `cvp` argument to solvers, see `cvp` above.
+Each of these has a wrapper variant (e.g `wbabai_cvp`) which makes it easy to specify parameters when passing the `cvp` argument to solvers, see the `cvp` parameter above.
 
 
 ## Installation
