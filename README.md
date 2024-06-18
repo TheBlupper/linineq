@@ -26,18 +26,20 @@ Keyword arguments:
  - `lp_bound` (default `100`) is an internal restriction on the size of the unknowns for the linear programming step, and is currently only used by `ortools`. This does *not* correspond to the size of the solutions you will find, rather the size of the coefficients a lattice-reduced matrix is multiplied by. You can often get by with surprisingly small values for `lp_bound` (e.g. `5`).<br><br>
  If you're unsure what to set `lp_bound` to you can call `set_verbose(1)` before solving an instance. It will then log what internal coefficients where used to find that solution. These will be `<= lp_bound` and `>= -lp_bound`.
 
- - `reduce` (default `wLLL()`) is a function which will be used to reduce a lattice basis. The wrapper functions `wLLL`, `wBKZ` and `wflatter` are provided for convenience, use them like `solve_bounded(..., reduce=wBKZ(block_size=20))`. The passed function should accept a matrix and return a tuple `(L, R)` of the reduced lattice basis together with the corresponding transformation matrix.
+ - `reduce` (default `wLLL()`) is a function which will be used to reduce a lattice basis. The wrapper functions `wLLL`, `wBKZ` and `wflatter` are provided for convenience, use them like `solve_bounded(..., reduce=wBKZ(block_size=20))`. The passed function should behave similarly to the [predefined ones](#lattice-reduction-algorithms).
 
  - `cvp` (default `wkannan_cvp()`) is function which will be used to solve the (approximate) closest vector problem. The wrapper functions `wkannan_cvp`, `wbabai_cvp` and `wfplll_cvp` are provided for convenience, use them like `solve_bounded(..., cvp=wfplll_cvp(prec=4096))`. The passed function should accept the same parameters as the [these](#cvp-solvers) and behave similarly.
 
 ## Lattice reduction algorithms
- - `BKZ(M)` returns a tuple $(\mathbf{L}, \mathbf{R})$ where $\mathbf{L}$ is the result of BKZ reduction on $\mathbf{M}$ and $\mathbf{R M} = \mathbf{L}$.
+ - `BKZ(M, transformation=False)` returns the BKZ reduction of $\mathbf{M}$.
 
- - `flatter(M, path='flatter')` returns a tuple $(\mathbf{L}, \mathbf{R})$ where $\mathbf{L}$ is the result of running [flatter](https://github.com/keeganryan/flatter) on $\mathbf{M}$ and $\mathbf{R M} = \mathbf{L}$. This requires `flatter` to be installed and in `PATH`, or you can specify the path to the executable with the `path` argument.
+ - `flatter(M, path='flatter', transformation=False)` returns a the result of running [flatter](https://github.com/keeganryan/flatter) on $\mathbf{M}$. This requires `flatter` to be installed and in `PATH`, or you can specify the path to the executable with the `path` argument.
 
- - `LLL(M)` returns a tuple $(\mathbf{L}, \mathbf{R})$ where $\mathbf{L}$ is the result of LLL reduction on $\mathbf{M}$ and $\mathbf{R M} = \mathbf{L}$. This is just a wrapper around `M.LLL(transformation=True)` and is only here for consistency.
+ - `LLL(M, transformation=False)` returns the LLL reduction of $\mathbf{M}$. This is just a wrapper around `M.LLL()` and is only here for consistency.
 
 Each of these has a wrapper variant (e.g `wBKZ`) which makes it easy to specify reduction parameters when passing the `reduce` argument to solvers, see `reduce` above.
+
+The `transformation` parameter indicates if the function should instead return the tuple $(\mathbf{L}, \mathbf{R})$ where $\mathbf{L}$ is the reduced lattice basis and $\mathbf{R M} = \mathbf{L}$.
 
 > [!WARNING]  
 > Neither BKZ nor flatter provide a transformation matrix themselves, it is calculated after the fact and this can be slow for large matrices. Use `set_verbose(1)` and look for if it freezes on `computing smith normal form...`
@@ -46,6 +48,8 @@ Each of these has a wrapper variant (e.g `wBKZ`) which makes it easy to specify 
  - `kannan_cvp(B, t)` (alias `cvp()`) finds an approximate closest vector to $\mathbf{t}$ in the lattice $\mathbf{B}$ using the Kannan embedding. This uses lattice reduction so the `reduce` argument is relevant even if `is_reduced=True`.
 
  - `babai_cvp(B, t)` finds an approximate closest vector to $\mathbf{t}$ in the lattice $\mathbf{B}$ using Babai's closest plane algorithm.
+
+ - `rounding_cvp(B, t)` finds an approximate closest vector to $\mathbf{t}$ in the lattice $\mathbf{B}$ using Babai's rounding-off algorithm.
 
  - `fplll_cvp(B, t, prec=4096)` finds an approximate closest vector to $\mathbf{t}$ in the lattice $\mathbf{B}$ using `fplll`'s `MatGSO.babai()` method.
 

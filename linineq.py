@@ -8,7 +8,7 @@ from queue import Queue
 from functools import partial
 
 from sage.misc.verbose import verbose
-from sage.all import vector, ZZ, matrix, identity_matrix, zero_matrix, block_matrix
+from sage.all import ZZ, QQ, vector, matrix, identity_matrix, zero_matrix, block_matrix
 from fpylll import IntegerMatrix, GSO, FPLLL
 
 try:
@@ -32,7 +32,7 @@ def _fplll_to_sage(s, nrows, ncols):
     return matrix(nrows, ncols, map(int, re.findall(r'-?\d+', s)))
 
 
-def BKZ(M, block_size=20):
+def BKZ(M, transformation=False, block_size=20):
     '''
     Computes the BKZ reduction (and transformation matrix) of the lattice M
     using fplll CLI
@@ -48,8 +48,9 @@ def BKZ(M, block_size=20):
     #R = _fplll_to_sage(res, M.nrows(), M.nrows())
 
     L = M.BKZ()
-    R = _transformation_matrix(M, L)
-    return L, R
+    if transformation:
+        return L, transformation_matrix(M, L)
+    return L
 
 
 def wBKZ(block_size=20):
@@ -58,14 +59,14 @@ def wBKZ(block_size=20):
 
 # Useless but here for consistency
 def LLL(M, **kwargs):
-    return M.LLL(transformation=True, **kwargs)
+    return M.LLL(**kwargs)
 
 
 def wLLL(**kwargs):
     return partial(LLL, **kwargs)
 
 
-def flatter(M, path=_DEFAULT_FLATTER_PATH):
+def flatter(M, transformation=False, path=_DEFAULT_FLATTER_PATH):
     ''''
     Runs flatter on the lattice basis M using the flatter CLI located
     at `path`. Returns the reduced basis and the transformation matrix.
@@ -74,14 +75,28 @@ def flatter(M, path=_DEFAULT_FLATTER_PATH):
         raise ValueError('flatter does not support matrices where nrows > ncols')
     res = subprocess.check_output([path], input=_sage_to_fplll(M).encode())
     L = _fplll_to_sage(res.decode(), M.nrows(), M.ncols())
-    return L, _transformation_matrix(M, L)
+
+    if transformation:
+        return L, transformation_matrix(M, L)
+    return L
 
 
 def wflatter(path=_DEFAULT_FLATTER_PATH):
     return partial(flatter, path=path)
 
 
-def _transformation_matrix(M, L):
+def solve_right_int(A, B):
+    verbose(f'computing smith normal form of a {A.nrows()} x {A.ncols()} matrix', level=1)
+    D, U, V = A.smith_form()
+    try:
+        return (V*D.solve_right(U*B)).change_ring(ZZ)
+    except TypeError:
+        raise ValueError('no integer solution')
+    except ValueError:
+        raise ValueError('no solution')
+
+
+def transformation_matrix(M, L):
     '''
     Finds an integer matrix R s.t R*M = L
     (assuming L is LLL reduced)
@@ -95,11 +110,8 @@ def _transformation_matrix(M, L):
     else:
         R = matrix(ZZ, 0, M.nrows())
     
-    verbose(f'computing smith normal form of a {M.ncols()} x {M.nrows()} matrix', level=1)
-    D, U, V = M.T.smith_form()
-    R = R.stack((V*D.solve_right(U*L[R.nrows():].T)).T)
     try:
-        return R.change_ring(ZZ)
+        return R.stack(solve_right_int(M.T, L[R.nrows():].T).T)
     except ValueError:
         raise ValueError('failed to calculate transformation, message @blupper on discord plz')
 
@@ -115,7 +127,7 @@ def kannan_cvp(B, t, is_reduced=False, reduce=wLLL(), coords=False):
 
     t = vector(ZZ, t)
 
-    if not is_reduced: B, R = reduce(B)
+    if not is_reduced: B, R = reduce(B, transformation=True)
     else: R = identity_matrix(ZZ, B.nrows())
 
     # an LLL reduced basis is ordered 
@@ -127,7 +139,7 @@ def kannan_cvp(B, t, is_reduced=False, reduce=wLLL(), coords=False):
         [matrix(t), S]
     ])
     
-    L, U = reduce(L)
+    L, U = reduce(L, transformation=True)
     for u, v in zip(U, L):
         if abs(u[-1]) == 1:
             # *u[-1] cancels the sign to be positive
@@ -148,7 +160,7 @@ def wkannan_cvp(reduce=wLLL()):
 
 
 def babai_cvp(B, t, is_reduced=False, reduce=wLLL(), coords=False):
-    if not is_reduced: B, R = reduce(B)
+    if not is_reduced: B, R = reduce(B, transformation=True)
     else: R = identity_matrix(ZZ, B.nrows())
 
     G = B.gram_schmidt()[0]
@@ -170,7 +182,7 @@ def wbabai_cvp(reduce=wLLL()):
 
 
 def fplll_cvp(B, t, prec=4096, is_reduced=False, reduce=wLLL(), coords=False):
-    if not is_reduced: B, R = reduce(B)
+    if not is_reduced: B, R = reduce(B, transformation=True)
     else: R = identity_matrix(ZZ, B.nrows())
 
     prev_prec = FPLLL.get_precision()
@@ -189,6 +201,23 @@ def fplll_cvp(B, t, prec=4096, is_reduced=False, reduce=wLLL(), coords=False):
 
 def wfplll_cvp(prec=4096, reduce=wLLL()):
     return partial(fplll_cvp, prec=prec, reduce=reduce)
+
+
+def rounding_cvp(B, t, is_reduced=False, reduce=wLLL(), coords=False):
+    if not is_reduced: B, R = reduce(B, transformation=True)
+    else: R = identity_matrix(ZZ, B.nrows())
+
+    w = vector(ZZ, [QQ(x).round('even') for x in t*B.pseudoinverse()])
+    if coords:
+        return w*B, w*R
+    return w*B
+
+
+def wrounding_cvp(reduce=wLLL()):
+    return partial(rounding_cvp, reduce=reduce)
+
+
+# LINEAR PROGRAMMING SOLVERS
 
 
 def _cp_model(problem, lp_bound=100):
@@ -359,7 +388,8 @@ def find_solution(problem, solver=None, lp_bound=100, **_):
     return tuple(slvr.Value(v) for v in X)
 
 
-# https://library.wolfram.com/infocenter/Books/8502/AdvancedAlgebra.pdf page 80
+# This is where the magic happens
+# based on https://library.wolfram.com/infocenter/Books/8502/AdvancedAlgebra.pdf page 80
 def _build_system(M, Mineq, b, bineq, reduce=wLLL(), cvp=wkannan_cvp(), **_):
     '''
     Returns a tuple (problem, f) where problem is a tuple of the form (M, b)
@@ -372,11 +402,9 @@ def _build_system(M, Mineq, b, bineq, reduce=wLLL(), cvp=wkannan_cvp(), **_):
     assert M.nrows() == len(b)
 
     # find unbounded solution
-    D, U, V = M.smith_form()
     try:
-        s = V*D.solve_right(U*vector(ZZ, b))
-        s = s.change_ring(ZZ)
-    except (TypeError, ValueError):
+        s = solve_right_int(M, vector(ZZ, b))
+    except ValueError:
         raise ValueError('no solution (even without bounds)')
 
     ker = M.right_kernel_matrix(algorithm='pari').change_ring(ZZ)
@@ -409,7 +437,7 @@ def _build_system(M, Mineq, b, bineq, reduce=wLLL(), cvp=wkannan_cvp(), **_):
 
         return (Mred, bred), lambda _: s
 
-    Mred, R = reduce(Mker)
+    Mred, R = reduce(Mker, transformation=True)
 
     bineq = vector(ZZ, bineq) - Mineq*s
 
