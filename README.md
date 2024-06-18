@@ -2,7 +2,7 @@
 
 `linineq.py` contains functions for solving linear inequalities in integers. It utilizes methods outlined [here](https://library.wolfram.com/infocenter/Books/8502/AdvancedAlgebra.pdf) on pages 80-81. It combines lattice reduction and linear programming to first reduce the problem to a simpler one and then solve it.
 
-### Solver functions
+## Solver functions
 All $\le$ denote component-wise comparison.
 
  - `solve_eq_ineq(M, Mineq, b, bineq)` solves $\mathbf{Mx} = \mathbf{b}$ and $\mathbf{M_{ineq}x} \ge \mathbf{b_{ineq}}$. This is the most general form of the problem.
@@ -30,7 +30,7 @@ Keyword arguments:
 
  - `cvp` (default `wkannan_cvp()`) is function which will be used to solve the (approximate) closest vector problem. The wrapper functions `wkannan_cvp`, `wbabai_cvp` and `wfplll_cvp` are provided for convenience, use them like `solve_bounded(..., cvp=wfplll_cvp(prec=4096))`. The passed function should accept the same parameters as the [these](#cvp-solvers) and behave similarly.
 
-### Lattice reduction algorithms
+## Lattice reduction algorithms
  - `BKZ(M)` returns a tuple $(\mathbf{L}, \mathbf{R})$ where $\mathbf{L}$ is the result of BKZ reduction on $\mathbf{M}$ and $\mathbf{R M} = \mathbf{L}$.
 
  - `flatter(M, path='flatter')` returns a tuple $(\mathbf{L}, \mathbf{R})$ where $\mathbf{L}$ is the result of running [flatter](https://github.com/keeganryan/flatter) on $\mathbf{M}$ and $\mathbf{R M} = \mathbf{L}$. This requires `flatter` to be installed and in `PATH`, or you can specify the path to the executable with the `path` argument.
@@ -42,7 +42,7 @@ Each of these has a wrapper variant (e.g `wBKZ`) which makes it easy to specify 
 > [!WARNING]  
 > Neither BKZ nor flatter provide a transformation matrix themselves, it is calculated after the fact and this can be slow for large matrices. Use `set_verbose(1)` and look for if it freezes on `computing smith normal form...`
 
-### CVP solvers
+## CVP solvers
  - `kannan_cvp(B, t)` (alias `cvp()`) finds an approximate closest vector to $\mathbf{t}$ in the lattice $\mathbf{B}$ using the Kannan embedding. This uses lattice reduction so the `reduce` argument is relevant even if `is_reduced=True`.
 
  - `babai_cvp(B, t)` finds an approximate closest vector to $\mathbf{t}$ in the lattice $\mathbf{B}$ using Babai's closest plane algorithm.
