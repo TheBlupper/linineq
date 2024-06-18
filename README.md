@@ -21,7 +21,7 @@ Each of these methods has a `_gen` variant (e.g `solve_bounded_gen`) which retur
 
 Keyword arguments:
 
- - `solver` (default `ORTOOLS`) is one of `ORTOOLS` and `PPL` and decides which integer programming solver to use. `ortools` is faster and usually preferred, but as it only supports 64-bit numbers it is sometimes insufficient. In those cases `ppl` is used automatically and a warning is emitted. Only `ortools` supports iterating solutions.
+ - `solver` (default `ORTOOLS`) is one of `ORTOOLS` and `PPL` and decides which integer programming solver to use. `ortools` is faster and usually preferred, but as it only supports 64-bit numbers it is sometimes insufficient. In those cases `ppl` is used automatically. Only `ortools` supports iterating solutions.
 
  - `lp_bound` (default `100`) is an internal restriction on the size of the unknowns for the linear programming step, and is currently only used by `ortools`. This does *not* correspond to the size of the solutions you will find, rather the size of the coefficients a lattice-reduced matrix is multiplied by. You can often get by with surprisingly small values for `lp_bound` (e.g. `5`).<br><br>
  If you're unsure what to set `lp_bound` to you can call `set_verbose(1)` before solving an instance. It will then log what internal coefficients where used to find that solution. These will be `<= lp_bound` and `>= -lp_bound`.
