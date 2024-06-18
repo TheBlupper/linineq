@@ -1,13 +1,15 @@
 import ppl
+import re
 import threading
 import subprocess
 
-from ast import literal_eval
 from warnings import warn
 from queue import Queue
+from functools import partial
 
 from sage.misc.verbose import verbose
 from sage.all import vector, ZZ, matrix, identity_matrix, zero_matrix, block_matrix
+from fpylll import IntegerMatrix, GSO, FPLLL
 
 try:
     from ortools.sat.python import cp_model as ort
@@ -18,37 +20,94 @@ except ImportError:
 ORTOOLS = 'ortools'
 PPL = 'ppl'
 
-FPLLL_PATH = 'fplll'
+_DEFAULT_FLATTER_PATH = 'flatter'
 
+# LATTICE REDUCTION FUNCTIONS
 
 def _sage_to_fplll(M):
     return '[' + '\n'.join('[' + ' '.join(map(str, row)) + ']' for row in M) + ']'
 
 
-def _fplll_to_sage(s):
-    return matrix(ZZ, literal_eval(s.strip()))
+def _fplll_to_sage(s, nrows, ncols):
+    return matrix(nrows, ncols, map(int, re.findall(r'-?\d+', s)))
 
 
-def BKZ(block_size=20):
+def BKZ(M, block_size=20):
+    '''
+    Computes the BKZ reduction (and transformation matrix) of the lattice M
+    using fplll CLI
+    '''
     assert block_size >= 1
-    def wrap(M):
-        if M.nrows() > M.ncols():
-            raise ValueError('BKZ is broken for matrices where nrows > ncols, '
-                             'see https://github.com/fplll/fplll/issues/525')
-        res = subprocess.check_output(f'{FPLLL_PATH} -a bkz -b {int(block_size)} -of uk'.split(),
-            input=_sage_to_fplll(M).encode()).decode()
-        U = _fplll_to_sage(res)
-        return U*M, U
-    return wrap
+
+    # this is behaving funkily atm
+    #if M.nrows() > M.ncols():
+    #    raise ValueError('BKZ is broken for matrices where nrows > ncols, '
+    #                        'see https://github.com/fplll/fplll/issues/525')
+    #res = subprocess.check_output(f'{fplll_path} -a bkz -b {int(block_size)} -of u'.split(),
+    #    input=_sage_to_fplll(M).encode()).decode()
+    #R = _fplll_to_sage(res, M.nrows(), M.nrows())
+
+    L = M.BKZ()
+    R = _transformation_matrix(M, L)
+    return L, R
 
 
-def LLL(**kwargs):
-    def wrap(M):
-        return M.LLL(transformation=True, **kwargs)
-    return wrap
+def wBKZ(block_size=20):
+    return partial(BKZ, block_size=block_size)
 
 
-def cvp_coords(B, t, is_reduced=False, reduce=LLL()):
+# Useless but here for consistency
+def LLL(M, **kwargs):
+    return M.LLL(transformation=True, **kwargs)
+
+
+def wLLL(**kwargs):
+    return partial(LLL, **kwargs)
+
+
+def flatter(M, path=_DEFAULT_FLATTER_PATH):
+    ''''
+    Runs flatter on the lattice basis M using the flatter CLI located
+    at `path`. Returns the reduced basis and the transformation matrix.
+    '''
+    if M.nrows() > M.ncols():
+        raise ValueError('flatter does not support matrices where nrows > ncols')
+    res = subprocess.check_output([path], input=_sage_to_fplll(M).encode())
+    L = _fplll_to_sage(res.decode(), M.nrows(), M.ncols())
+    return L, _transformation_matrix(M, L)
+
+
+def wflatter(path=_DEFAULT_FLATTER_PATH):
+    return partial(flatter, path=path)
+
+
+def _transformation_matrix(M, L):
+    '''
+    Finds an integer matrix R s.t R*M = L
+    (assuming L is LLL reduced)
+
+    In my experience this produces a unimodular matrix
+    but I have no proof or assurance of this.
+    '''
+
+    if M.nrows() > M.ncols():
+        R = M.left_kernel_matrix(algorithm='pari')
+    else:
+        R = matrix(ZZ, 0, M.nrows())
+    
+    verbose(f'computing smith normal form of a {M.ncols()} x {M.nrows()} matrix', level=1)
+    D, U, V = M.T.smith_form()
+    R = R.stack((V*D.solve_right(U*L[R.nrows():].T)).T)
+    try:
+        return R.change_ring(ZZ)
+    except ValueError:
+        raise ValueError('failed to calculate transformation, message @blupper on discord plz')
+
+
+# CVP FUNCTIONS
+
+
+def kannan_cvp(B, t, is_reduced=False, reduce=wLLL(), coords=False):
     '''
     Returns both the (approximate) closest vector
     to t and its coordinates in the lattice B
@@ -73,12 +132,63 @@ def cvp_coords(B, t, is_reduced=False, reduce=LLL()):
         if abs(u[-1]) == 1:
             # *u[-1] cancels the sign to be positive
             # just in case
-            return t - v[:-1]*u[-1], -u[:-1]*u[-1]*R
+            res = t - v[:-1]*u[-1]
+            if coords:
+                return res, -u[:-1]*u[-1]*R
+            return res
     raise ValueError("babai failed? plz msg @blupper on discord (unless you didn't reduce?)")
 
 
-def cvp(B, t, is_reduced=False, reduce=LLL()):
-    return cvp_coords(B, t, is_reduced, reduce)[0]
+# handy alias
+cvp = kannan_cvp
+
+
+def wkannan_cvp(reduce=wLLL()):
+    return partial(kannan_cvp, reduce=reduce)
+
+
+def babai_cvp(B, t, is_reduced=False, reduce=wLLL(), coords=False):
+    if not is_reduced: B, R = reduce(B)
+    else: R = identity_matrix(ZZ, B.nrows())
+
+    G = B.gram_schmidt()[0]
+    diff = t
+
+    w = []
+    for i in reversed(range(G.nrows())):
+        c = ((diff * G[i]) / (G[i] * G[i])).round()
+        if coords: w.append(c)
+        diff -= c*B[i]
+    res = t - diff
+    if coords:
+        return res, vector(ZZ, w[::-1])*R
+    return res
+
+
+def wbabai_cvp(reduce=wLLL()):
+    return partial(babai_cvp, reduce=reduce)
+
+
+def fplll_cvp(B, t, prec=4096, is_reduced=False, reduce=wLLL(), coords=False):
+    if not is_reduced: B, R = reduce(B)
+    else: R = identity_matrix(ZZ, B.nrows())
+
+    prev_prec = FPLLL.get_precision()
+    FPLLL.set_precision(prec)
+
+    Mf = IntegerMatrix.from_matrix(B)
+    G = GSO.Mat(Mf, float_type='mpfr')
+    G.update_gso()
+    w = vector(ZZ, G.babai(list(t)))
+
+    FPLLL.set_precision(prev_prec)
+    if coords:
+        return w*B, w*R
+    return w*B
+
+
+def wfplll_cvp(prec=4096, reduce=wLLL()):
+    return partial(fplll_cvp, prec=prec, reduce=reduce)
 
 
 def _cp_model(problem, lp_bound=100):
@@ -250,7 +360,7 @@ def find_solution(problem, solver=None, lp_bound=100, **_):
 
 
 # https://library.wolfram.com/infocenter/Books/8502/AdvancedAlgebra.pdf page 80
-def _build_system(M, Mineq, b, bineq, reduce=LLL(), **_):
+def _build_system(M, Mineq, b, bineq, reduce=wLLL(), cvp=wkannan_cvp(), **_):
     '''
     Returns a tuple (problem, f) where problem is a tuple of the form (M, b)
     where a solution to x*M >= b is sought, and f is a function that will
@@ -304,7 +414,7 @@ def _build_system(M, Mineq, b, bineq, reduce=LLL(), **_):
     bineq = vector(ZZ, bineq) - Mineq*s
 
     verbose('running cvp', level=1)
-    bineq_cv, bineq_coord = cvp_coords(Mred, bineq, is_reduced=True, reduce=reduce)
+    bineq_cv, bineq_coord = cvp(Mred, bineq, is_reduced=True, coords=True)
     bineq -= bineq_cv
 
     # we then let a solver find an integer solution to
