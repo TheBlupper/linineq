@@ -6,6 +6,7 @@ import subprocess
 from warnings import warn
 from queue import Queue
 from functools import partial
+from typing import Callable, Optional
 
 from sage.misc.verbose import verbose
 from sage.all import ZZ, QQ, vector, matrix, identity_matrix, zero_matrix, block_matrix
@@ -32,10 +33,21 @@ def _fplll_to_sage(s, nrows, ncols):
     return matrix(nrows, ncols, map(int, re.findall(r'-?\d+', s)))
 
 
-def BKZ(M, transformation=False, block_size=20):
+def BKZ(M, transformation: bool=False, block_size: int=20):
     '''
-    Computes the BKZ reduction (and transformation matrix) of the lattice M
-    using fplll CLI
+    Computes the BKZ reduction of the lattice M. 
+    This currently just uses `M.BKZ()` but will hopefully
+    use the flatter CLI in the future so that the transformation
+    matrix doesn't need to be computed separately.
+
+    Args:
+        M: The input lattice basis.
+        transformation (optional): If True, returns the tuple (L, R) where
+            L is the reduced basis and R*M = L
+        block_size (optional): The block size to use for BKZ.
+
+    Returns:
+        The matrix L or the tuple of matrices (L, R)
     '''
     assert block_size >= 1
 
@@ -53,12 +65,21 @@ def BKZ(M, transformation=False, block_size=20):
     return L
 
 
-def wBKZ(block_size=20):
+def wBKZ(block_size: int=20):
     return partial(BKZ, block_size=block_size)
 
 
-# Useless but here for consistency
 def LLL(M, **kwargs):
+    '''
+    Wrapper around `M.LLL()` for consistency, serves no real purpose.
+
+    Args:
+        M: The input lattice basis.
+        **kwargs: Passed onto `M.LLL()`
+
+    Returns:
+        The result of `M.LLL(**kwargs)`
+    '''
     return M.LLL(**kwargs)
 
 
@@ -66,10 +87,22 @@ def wLLL(**kwargs):
     return partial(LLL, **kwargs)
 
 
-def flatter(M, transformation=False, path=_DEFAULT_FLATTER_PATH):
+def flatter(M, transformation: bool=False, path: str=_DEFAULT_FLATTER_PATH):
     ''''
     Runs flatter on the lattice basis M using the flatter CLI located
-    at `path`. Returns the reduced basis and the transformation matrix.
+    at `path`.
+
+    Args:
+        M: The input lattice basis.
+        transformation (optional): If True, returns the tuple (L, R) where
+            L is the reduced basis and R*M = L
+
+    Returns:
+        The matrix L or the tuple of matrices (L, R)
+
+    Raises:
+        ValueError: If the matrix has more rows than columns,
+            flatter doesn't support this.
     '''
     if M.nrows() > M.ncols():
         raise ValueError('flatter does not support matrices where nrows > ncols')
@@ -81,11 +114,25 @@ def flatter(M, transformation=False, path=_DEFAULT_FLATTER_PATH):
     return L
 
 
-def wflatter(path=_DEFAULT_FLATTER_PATH):
+def wflatter(path: str=_DEFAULT_FLATTER_PATH):
     return partial(flatter, path=path)
 
 
 def solve_right_int(A, B):
+    '''
+    Solves the linear integer system of equations
+    A*X = B for a matrix A and a vector or matrix B.
+
+    Args:
+        A: The matrix A.
+        B: The vector or matrix B.
+
+    Returns:
+        The vector or matrix X.
+
+    Raises:
+        ValueError: If either no rational solution or no integer solution exists.
+    '''
     verbose(f'computing smith normal form of a {A.nrows()} x {A.ncols()} matrix', level=1)
     D, U, V = A.smith_form()
     try:
@@ -103,6 +150,17 @@ def transformation_matrix(M, L):
 
     In my experience this produces a unimodular matrix
     but I have no proof or assurance of this.
+
+    Args:
+        M: The matrix M.
+        L: The matrix L.
+
+    Returns:
+        The matrix R.
+
+    Raises:
+        ValueError: If no valid transformation matrix can be found, this
+                    should not happen if L is an LLL reduction of M.
     '''
 
     if M.nrows() > M.ncols():
@@ -119,10 +177,22 @@ def transformation_matrix(M, L):
 # CVP FUNCTIONS
 
 
-def kannan_cvp(B, t, is_reduced=False, reduce=wLLL(), coords=False):
+def kannan_cvp(B, t, is_reduced: bool=False, reduce: Callable=wLLL(), coords: bool=False):
     '''
-    Returns both the (approximate) closest vector
-    to t and its coordinates in the lattice B
+    Computes the (approximate) closest vector to t in the lattice spanned by B
+    using the Kannan embedding.
+
+    Args:
+        B: The lattice basis.
+        t: The target vector.
+        is_reduced (optional): If True, assumes B is already reduced.
+            Otherwise it will reduce B first.
+        reduce (optional): The lattice reduction function to use.
+        coords (optional): If True, returns the coordinates of the closest vector.
+    
+    Returns:
+        The closest vector u to t in the lattice spanned by B, or the tuple
+        (u, v) where v*B = u if coords is True.
     '''
 
     if not is_reduced: B, R = reduce(B, transformation=True)
@@ -140,11 +210,11 @@ def kannan_cvp(B, t, is_reduced=False, reduce=wLLL(), coords=False):
     ])
     
     L, U = reduce(L, transformation=True)
-    for u, v in zip(U, L):
+    for u, l in zip(U, L):
         if abs(u[-1]) == 1:
             # *u[-1] cancels the sign to be positive
             # just in case
-            res = t - v[:-1]*u[-1]
+            res = t - l[:-1]*u[-1]
             if coords:
                 return res, -u[:-1]*u[-1]*R
             return res
@@ -155,33 +225,66 @@ def kannan_cvp(B, t, is_reduced=False, reduce=wLLL(), coords=False):
 cvp = kannan_cvp
 
 
-def wkannan_cvp(reduce=wLLL()):
+def wkannan_cvp(reduce: Callable=wLLL()):
     return partial(kannan_cvp, reduce=reduce)
 
 
-def babai_cvp(B, t, is_reduced=False, reduce=wLLL(), coords=False):
+def babai_cvp(B, t, is_reduced: bool=False, reduce: Callable=wLLL(), coords: bool=False):
+    '''
+    Computes the (approximate) closest vector to t in the lattice spanned by B
+    using Babai's nearest plane algorithm. This can be very slow for large B.
+
+    Args:
+        B: The lattice basis.
+        t: The target vector.
+        is_reduced (optional): If True, assumes B is already reduced.
+            Otherwise it will reduce B first.
+        reduce (optional): The lattice reduction function to use.
+        coords (optional): If True, returns the coordinates of the closest vector.
+    
+    Returns:
+        The closest vector u to t in the lattice spanned by B, or the tuple
+        (u, v) where v*B = u if coords is True.
+    '''
     if not is_reduced: B, R = reduce(B, transformation=True)
     else: R = identity_matrix(ZZ, B.nrows())
 
     G = B.gram_schmidt()[0]
     diff = t
 
-    w = []
+    v = []
     for i in reversed(range(G.nrows())):
         c = ((diff * G[i]) / (G[i] * G[i])).round()
-        if coords: w.append(c)
+        if coords: v.append(c)
         diff -= c*B[i]
     res = t - diff
     if coords:
-        return res, vector(ZZ, w[::-1])*R
+        return res, vector(ZZ, v[::-1])*R
     return res
 
 
-def wbabai_cvp(reduce=wLLL()):
+def wbabai_cvp(reduce: Callable=wLLL()):
     return partial(babai_cvp, reduce=reduce)
 
 
-def fplll_cvp(B, t, prec=4096, is_reduced=False, reduce=wLLL(), coords=False):
+def fplll_cvp(B, t, prec: int=4096, is_reduced: bool=False, reduce: Callable=wLLL(), coords: bool=False):
+    '''
+    Computes the (approximate) closest vector to t in the lattice spanned by B
+    using fplll's MatGSO.babai() function. Beware of the precision used.
+
+    Args:
+        B: The lattice basis.
+        t: The target vector.
+        prec (optional): The precision to use for the floating point calculations in fplll.
+        is_reduced (optional): If True, assumes B is already reduced.
+            Otherwise it will reduce B first.
+        reduce (optional): The lattice reduction function to use.
+        coords (optional): If True, returns the coordinates of the closest vector.
+    
+    Returns:
+        The closest vector u to t in the lattice spanned by B, or the tuple
+        (u, v) where v*B = u if coords is True.
+    '''
     if not is_reduced: B, R = reduce(B, transformation=True)
     else: R = identity_matrix(ZZ, B.nrows())
 
@@ -191,36 +294,52 @@ def fplll_cvp(B, t, prec=4096, is_reduced=False, reduce=wLLL(), coords=False):
     Mf = IntegerMatrix.from_matrix(B)
     G = GSO.Mat(Mf, float_type='mpfr')
     G.update_gso()
-    w = vector(ZZ, G.babai(list(t)))
+    v = vector(ZZ, G.babai(list(t)))
 
     FPLLL.set_precision(prev_prec)
     if coords:
-        return w*B, w*R
-    return w*B
+        return v*B, v*R
+    return v*B
 
 
-def wfplll_cvp(prec=4096, reduce=wLLL()):
+def wfplll_cvp(prec: int=4096, reduce: Callable=wLLL()):
     return partial(fplll_cvp, prec=prec, reduce=reduce)
 
 
-def rounding_cvp(B, t, is_reduced=False, reduce=wLLL(), coords=False):
+def rounding_cvp(B, t, is_reduced: bool=False, reduce: Callable=wLLL(), coords: bool=False):
+    '''
+    Computes the (approximate) closest vector to t in the lattice spanned by B
+    using Babai's rounding-off algorithm. This is the fastest cvp algorithm provided.
+
+    Args:
+        B: The lattice basis
+        t: The target vector
+        is_reduced (optional): If True, assumes B is already reduced.
+            Otherwise it will reduce B first.
+        reduce (optional): The lattice reduction function to use.
+        coords (optional): If True, returns the coordinates of the closest vector.
+    
+    Returns:
+        The closest vector u to t in the lattice spanned by B, or the tuple
+        (u, v) where v*B = u if coords is True.
+    '''
     if not is_reduced: B, R = reduce(B, transformation=True)
     else: R = identity_matrix(ZZ, B.nrows())
 
-    w = vector(ZZ, [QQ(x).round('even') for x in t*B.pseudoinverse()])
+    v = vector(ZZ, [QQ(x).round('even') for x in (B*B.T).solve_left(t*B.T)])
     if coords:
-        return w*B, w*R
-    return w*B
+        return v*B, v*R
+    return v*B
 
 
-def wrounding_cvp(reduce=wLLL()):
+def wrounding_cvp(reduce: Callable=wLLL()):
     return partial(rounding_cvp, reduce=reduce)
 
 
 # LINEAR PROGRAMMING SOLVERS
 
 
-def _cp_model(problem, lp_bound=100):
+def _cp_model(problem, lp_bound: int=100):
     M, b = problem
 
     model = ort.CpModel()
@@ -241,7 +360,7 @@ def _validate_model(model):
     raise ValueError(f'Model rejected by ortools: {model.Validate()!r}')
 
 
-def _solve_ppl(problem, lp_bound=100):
+def _solve_ppl(problem, lp_bound: int=100):
     M, b = problem
 
     cs = ppl.Constraint_System()
@@ -269,11 +388,18 @@ def _solve_ppl(problem, lp_bound=100):
     return tuple(ZZ(c) for c in gen.coefficients())
 
 
-def gen_solutions(problem, solver=None, lp_bound=100, **_):
+def gen_solutions(problem, solver: Optional[str]=None, lp_bound: int=100, **_):
     '''
-    Return a generator which yields all solutions to a
-    problem instance, this will be slower at finding a single
-    solution because ortools can't parallelize the search
+    Generate solutions to a problem instance. This will be slower at
+    finding a single solution because ortools can't parallelize the search.
+
+    Args:
+        problem: A problem instance from a _build_xxx function.
+        solver (optional): The solver to use, currently only `'ortools'` is supported.
+        lp_bound (optional): The bounds on the unknown variables in ortools.
+    
+    Returns:
+        A generator yielding solutions to the problem instance.
     '''
 
     # solver parameter is a little redundant here since
@@ -347,9 +473,17 @@ if ort is not None:
                 return
 
 
-def find_solution(problem, solver=None, lp_bound=100, **_):
+def find_solution(problem, solver: Optional[str]=None, lp_bound: int=100, **_):
     '''
-    Finds a single solution to a problem instance
+    Find a single solution to a problem instance.
+
+    Args:
+        problem: A problem instance from a _build_xxx function.
+        solver (optional): The solver to use, either `ORTOOLS`, `PPL` or `None`.
+        lp_bound (optional): The bounds on the unknown variables in ortools, not used by ppl.
+    
+    Returns:
+        A tuple of integers representing a solution to the problem instance.
     '''
 
     # checks if 0 >= b, in that case 0 is a solution
@@ -390,11 +524,28 @@ def find_solution(problem, solver=None, lp_bound=100, **_):
 
 # This is where the magic happens
 # based on https://library.wolfram.com/infocenter/Books/8502/AdvancedAlgebra.pdf page 80
-def _build_system(M, Mineq, b, bineq, reduce=wLLL(), cvp=wkannan_cvp(), **_):
+def _build_system(M, Mineq, b, bineq, reduce: Callable=wLLL(), cvp: Callable=wkannan_cvp(), **_):
     '''
-    Returns a tuple (problem, f) where problem is a tuple of the form (M, b)
-    where a solution to x*M >= b is sought, and f is a function that will
-    transform a solution back to the original space of the query
+    Accepts a system of linear (in)equalities:
+    M*x = b where Mineq*x >= bineq
+
+    And reduces the problem as much as possible to make it
+    easy for a linear programming solver to solve.
+
+    Returns 
+
+    Args:
+        M: The matrix of equalities.
+        Mineq: The matrix of inequalities.
+        b: The target vector for the equalities.
+        bineq: The target vector for the inequalities.
+        reduce (optional): The lattice reduction function to use.
+        cvp (optional): The CVP function to use.
+    
+    Returns:
+        A tuple (problem, f) where problem is a tuple of the form (M, b)
+        where a solution to x*M >= b is sought, and f is a function that will
+        transform a solution x back to the original space of the query.
     '''
 
     assert Mineq.ncols() == M.ncols()
@@ -520,10 +671,8 @@ class LinineqSolver:
 
 def solve_eq_ineq_gen(M, Mineq, b, bineq, **kwargs):
     '''
-    Returns a generetor yielding all* solutions to:
+    Returns a generetor yielding solutions to:
     M*x = b where Mineq*x >= bineq
-
-    *depending on the lp_bound parameter
     '''
 
     problem, f = _build_system(M, Mineq, b, bineq, **kwargs)
@@ -542,10 +691,8 @@ def solve_eq_ineq(M, Mineq, b, bineq, **kwargs):
 
 def solve_ineq_gen(Mineq, bineq, **kwargs):
     '''
-    Returns a generator yielding all* solutions to:
+    Returns a generator yielding solutions to:
     Mineq*x >= bineq
-
-    *depending on the lp_bound parameter
     '''
 
     # 0xn matrix, the kernel will be the nxn identity
@@ -576,10 +723,8 @@ def _build_bounded_system(M, b, lb, ub, **kwargs):
 
 def solve_bounded_gen(M, b, lb, ub, **kwargs):
     '''
-    Returns a generator yielding all* solutions to:
+    Returns a generator yielding solutions to:
     M*x = b where lb <= x <= ub
-
-    *depending on the lp_bound parameter
     '''
 
     problem, f = _build_bounded_system(M, b, lb, ub, **kwargs)
@@ -611,10 +756,8 @@ def _build_mod_system(M, b, lb, ub, N, **kwargs):
 
 def solve_bounded_mod_gen(M, b, lb, ub, N, **kwargs):
     '''
-    Returns a generator yielding all* solutions to:
+    Returns a generator yielding solutions to:
     M*x = b (mod N) where lb <= x <= ub
-
-    *depending on the lp_bound parameter
     '''
 
     problem, f = _build_mod_system(M, b, lb, ub, N, **kwargs)
@@ -631,7 +774,7 @@ def solve_bounded_mod(M, b, lb, ub, N, **kwargs):
     return f(find_solution(problem, **kwargs))
 
 
-def _build_bounded_lcg_system(a, b, m, lb, ub, **kwargs):
+def _build_bounded_lcg_system(a: int, b: int, m: int, lb, ub, **kwargs):
     assert len(lb) == len(ub)
     n = len(lb)
     B = vector(ZZ, [(b*(a**i-1)//(a-1))%m for i in range(n)])
@@ -662,11 +805,9 @@ def solve_bounded_lcg(a, b, m, lb, ub, **kwargs):
 
 def solve_bounded_lcg_gen(a, b, m, lb, ub, **kwargs):
     '''
-    Returns a generator yielding all* possible consecutive
+    Returns a generator yielding possible consecutive
     outputs of the LCG s[i+1]=(a*s[i]+b)%m where
     lb[i] <= s[i] <= ub[i]
-
-    *depending on the lp_bound parameter
     '''
     problem, f = _build_bounded_lcg_system(a, b, m, lb, ub, **kwargs)
     yield from map(f, gen_solutions(problem, **kwargs))
@@ -684,11 +825,9 @@ def solve_truncated_lcg(a, b, m, ys, ntrunc, **kwargs):
 
 def solve_truncated_lcg_gen(a, b, m, ys, ntrunc, **kwargs):
     '''
-    Returns a generator yielding all* possible consecutive
+    Returns a generator yielding possible consecutive
     outputs of the LCG s[i+1]=(a*s[i]+b)%m where
     s[i] >> ntrunc = ys[i]
-
-    *depending on the lp_bound parameter
     '''
     lb = [y << ntrunc for y in ys]
     ub = [((y+1) << ntrunc)-1 for y in ys]
