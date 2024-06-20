@@ -12,25 +12,34 @@ a = 1144993629389611207194
 b = 3504184699413397958941
 
 # these are outputs of an lcg then taken modulo 100 
-trunc = [39, 47, 95, 1, 77, 89, 77, 70, 99, 23, 44, 38, 87, 34, 99, 42, 10, 67, 24, 3]
+trunc = [39, 47, 95, 1, 77, 89, 77, 70, 99, 23, 44, 38, 87, 34, 99, 42, 10, 67, 24, 3, 2, 80, 26, 87, 91, 86, 1, 71, 59, 97, 69, 31, 17, 91, 73, 78, 43, 18, 15, 46, 22, 68, 98, 60, 98, 17, 53, 13, 6, 13, 19, 50, 73, 44, 7, 44, 3, 5, 80, 26, 10, 55, 27, 47, 72, 80, 53, 2, 40, 64, 55, 6]
 n = len(trunc)
 
-As = [(a**i) % p for i in range(n)]
-Bs = [(b*(a**i-1)//(a-1)) % p for i in range(n)]
+P, (sym_s, *ks) = PolynomialRing(ZZ, 'x', 2*n).objgens()
+k100 = ks[:n]
+kp = ks[n:]
 
-M = block_matrix([
-    [column_matrix(As), p, 100],
-])
+slvr = LinineqSolver(P)
+out = [sym_s]
 
-# making a custom inequality matrix which
-# doesn't restrict the size of the first n+1
-# columns and then using solve_eq_ineq runs
-# faster, but it's more inconvenient
-lb = [0] + [-p]*n + [-p//100]*n
-ub = [p] + [p]*n + [p//100]*n
+# now we can just emulate the LCG symbolically
+for i in range(1, n):
+    out.append(a*out[-1] + b)
 
-sol = solve_bounded(M, vector([(t-b)%p for t, b in zip(trunc, Bs)]), lb, ub)
-s = sol[0]
+for i in range(n):
+    # mod 100
+    out[i] -= k100[i]*100
+
+    # mod p, but not on the first one to avoid
+    # multiple solutions
+    if i != 0: out[i] -= kp[i-1]*p
+
+for i, o in enumerate(out):
+    slvr.gt(k100[i], -p//100)
+    slvr.lt(k100[i], p//100)
+    slvr.eq(o, trunc[i])
+
+s = slvr.solve()[sym_s]
 
 def lcg():
     global s
