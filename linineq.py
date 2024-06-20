@@ -524,7 +524,7 @@ def find_solution(problem, solver: Optional[str]=None, lp_bound: int=100, **_):
 
 # This is where the magic happens
 # based on https://library.wolfram.com/infocenter/Books/8502/AdvancedAlgebra.pdf page 80
-def _build_system(M, Mineq, b, bineq, reduce: Callable=wLLL(), cvp: Callable=wkannan_cvp(), **_):
+def _build_system(M, Mineq, b, bineq, reduce: Callable=wLLL(), cvp: Callable=wkannan_cvp(), kernel_algo: Optional[str]=None, **_):
     '''
     Accepts a system of linear (in)equalities:
     M*x = b where Mineq*x >= bineq
@@ -539,6 +539,9 @@ def _build_system(M, Mineq, b, bineq, reduce: Callable=wLLL(), cvp: Callable=wka
         bineq: The target vector for the inequalities.
         reduce (optional): The lattice reduction function to use.
         cvp (optional): The CVP function to use.
+        kernel_algo (optional): The algorithm to use for finding the kernel of an internal matrix,
+            this is passed to the `algorithm` parameter of `Matrix_integer_dense.right_kernel_matrix()`.
+            If None it is automatically chosen heuristically.
     
     Returns:
         A tuple (problem, f) where problem is a tuple of the form (M, b)
@@ -556,9 +559,10 @@ def _build_system(M, Mineq, b, bineq, reduce: Callable=wLLL(), cvp: Callable=wka
     except ValueError:
         raise ValueError('no solution (even without bounds)')
 
-    # TODO: improve this heuristic
-    ker_algo = 'pari' if M.nrows()/M.ncols() < 0.25 else 'flint'
-    ker = M.right_kernel_matrix(algorithm=ker_algo).change_ring(ZZ)
+    if kernel_algo is None:
+        # TODO: improve this heuristic
+        kernel_algo = 'pari' if M.nrows()/M.ncols() < 0.25 else 'flint'
+    ker = M.right_kernel_matrix(algorithm=kernel_algo).change_ring(ZZ)
 
     # switch to left multiplication
     Mker = ker*Mineq.T

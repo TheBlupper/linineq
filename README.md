@@ -29,6 +29,8 @@ Keyword arguments:
  - `reduce` (default `wLLL()`) is a function which will be used to reduce a lattice basis. The wrapper functions `wLLL`, `wBKZ` and `wflatter` are provided for convenience, use them like `solve_bounded(..., reduce=wBKZ(block_size=20))`. The passed function should behave similarly to the [predefined ones](#lattice-reduction-algorithms).
 
  - `cvp` (default `wkannan_cvp()`) is function which will be used to solve the (approximate) closest vector problem. The wrapper functions `wkannan_cvp`, `wbabai_cvp` and `wfplll_cvp` are provided for convenience, use them like `solve_bounded(..., cvp=wfplll_cvp(prec=4096))`. The passed function should accept the same parameters as the [these](#cvp-solvers) and behave similarly.
+ 
+ - `kernel_algo` (default `None`) is a *string* which is passed to the `algorithm` parameter of `Matrix_integer_dense.right_kernel_matrix()`. If `None` a heuristic is used, if you notice freezing while computing the kernel try switching between `'pari'` and `'flint'`.
 
 ## Lattice reduction algorithms
  - `BKZ(M, transformation=False)` returns the BKZ reduction of $\mathbf{M}$.
