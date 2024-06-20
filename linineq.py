@@ -194,9 +194,12 @@ def kannan_cvp(B, t, is_reduced: bool=False, reduce: Callable=wLLL(), coords: bo
         The closest vector u to t in the lattice spanned by B, or the tuple
         (u, v) where v*B = u if coords is True.
     '''
-
-    if not is_reduced: B, R = reduce(B, transformation=True)
-    else: R = identity_matrix(ZZ, B.nrows())
+    if not is_reduced:
+        if coords:
+            B, R = reduce(B, transformation=True)
+        else:
+            B = reduce(B)
+    elif coords: R = identity_matrix(ZZ, B.nrows())
 
     t = vector(ZZ, t)
 
@@ -246,8 +249,12 @@ def babai_cvp(B, t, is_reduced: bool=False, reduce: Callable=wLLL(), coords: boo
         The closest vector u to t in the lattice spanned by B, or the tuple
         (u, v) where v*B = u if coords is True.
     '''
-    if not is_reduced: B, R = reduce(B, transformation=True)
-    else: R = identity_matrix(ZZ, B.nrows())
+    if not is_reduced:
+        if coords:
+            B, R = reduce(B, transformation=True)
+        else:
+            B = reduce(B)
+    elif coords: R = identity_matrix(ZZ, B.nrows())
 
     G = B.gram_schmidt()[0]
     diff = t
@@ -285,8 +292,12 @@ def fplll_cvp(B, t, prec: int=4096, is_reduced: bool=False, reduce: Callable=wLL
         The closest vector u to t in the lattice spanned by B, or the tuple
         (u, v) where v*B = u if coords is True.
     '''
-    if not is_reduced: B, R = reduce(B, transformation=True)
-    else: R = identity_matrix(ZZ, B.nrows())
+    if not is_reduced:
+        if coords:
+            B, R = reduce(B, transformation=True)
+        else:
+            B = reduce(B)
+    elif coords: R = identity_matrix(ZZ, B.nrows())
 
     prev_prec = FPLLL.get_precision()
     FPLLL.set_precision(prec)
@@ -323,9 +334,14 @@ def rounding_cvp(B, t, is_reduced: bool=False, reduce: Callable=wLLL(), coords: 
         The closest vector u to t in the lattice spanned by B, or the tuple
         (u, v) where v*B = u if coords is True.
     '''
-    if not is_reduced: B, R = reduce(B, transformation=True)
-    else: R = identity_matrix(ZZ, B.nrows())
+    if not is_reduced:
+        if coords:
+            B, R = reduce(B, transformation=True)
+        else:
+            B = reduce(B)
+    elif coords: R = identity_matrix(ZZ, B.nrows())
 
+    # we could also do t*B.pseudoinverse() but it's slower
     v = vector(ZZ, [QQ(x).round('even') for x in (B*B.T).solve_left(t*B.T)])
     if coords:
         return v*B, v*R
