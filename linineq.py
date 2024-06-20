@@ -532,8 +532,6 @@ def _build_system(M, Mineq, b, bineq, reduce: Callable=wLLL(), cvp: Callable=wka
     And reduces the problem as much as possible to make it
     easy for a linear programming solver to solve.
 
-    Returns 
-
     Args:
         M: The matrix of equalities.
         Mineq: The matrix of inequalities.
@@ -558,7 +556,9 @@ def _build_system(M, Mineq, b, bineq, reduce: Callable=wLLL(), cvp: Callable=wka
     except ValueError:
         raise ValueError('no solution (even without bounds)')
 
-    ker = M.right_kernel_matrix(algorithm='pari').change_ring(ZZ)
+    # TODO: improve this heuristic
+    ker_algo = 'pari' if M.nrows()/M.ncols() < 0.25 else 'flint'
+    ker = M.right_kernel_matrix(algorithm=ker_algo).change_ring(ZZ)
 
     # switch to left multiplication
     Mker = ker*Mineq.T
