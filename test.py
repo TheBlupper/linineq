@@ -2,8 +2,8 @@ from sage.all import *
 from linineq import *
 from itertools import product
 
-reds = [wBKZ(), wLLL(), wflatter()]
-cvps = [wrounding_cvp(), wbabai_cvp(), wfplll_cvp()] + [wkannan_cvp(reduce=red) for red in reds]
+reds = [BKZ, LLL, flatter]
+cvps = [rounding_cvp, babai_cvp, fplll_cvp] + [partial(kannan_cvp, reduce=red) for red in reds]
 
 mask = 3473400794307473
 m = 1 << 52

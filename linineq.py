@@ -5,8 +5,8 @@ import subprocess
 
 from warnings import warn
 from queue import Queue
-from functools import partial
 from typing import Callable, Optional
+from functools import partial # often comes in handy
 
 from sage.misc.verbose import verbose
 from sage.all import ZZ, QQ, vector, matrix, identity_matrix, zero_matrix, block_matrix
@@ -65,10 +65,6 @@ def BKZ(M, transformation: bool=False, block_size: int=20):
     return L
 
 
-def wBKZ(block_size: int=20):
-    return partial(BKZ, block_size=block_size)
-
-
 def LLL(M, **kwargs):
     '''
     Wrapper around `M.LLL()` for consistency, serves no real purpose.
@@ -81,10 +77,6 @@ def LLL(M, **kwargs):
         The result of `M.LLL(**kwargs)`
     '''
     return M.LLL(**kwargs)
-
-
-def wLLL(**kwargs):
-    return partial(LLL, **kwargs)
 
 
 def flatter(M, transformation: bool=False, path: str=_DEFAULT_FLATTER_PATH):
@@ -112,10 +104,6 @@ def flatter(M, transformation: bool=False, path: str=_DEFAULT_FLATTER_PATH):
     if transformation:
         return L, transformation_matrix(M, L)
     return L
-
-
-def wflatter(path: str=_DEFAULT_FLATTER_PATH):
-    return partial(flatter, path=path)
 
 
 def solve_right_int(A, B):
@@ -177,7 +165,7 @@ def transformation_matrix(M, L):
 # CVP FUNCTIONS
 
 
-def kannan_cvp(B, t, is_reduced: bool=False, reduce: Callable=wLLL(), coords: bool=False):
+def kannan_cvp(B, t, is_reduced: bool=False, reduce: Callable=LLL, coords: bool=False):
     '''
     Computes the (approximate) closest vector to t in the lattice spanned by B
     using the Kannan embedding.
@@ -228,11 +216,7 @@ def kannan_cvp(B, t, is_reduced: bool=False, reduce: Callable=wLLL(), coords: bo
 cvp = kannan_cvp
 
 
-def wkannan_cvp(reduce: Callable=wLLL()):
-    return partial(kannan_cvp, reduce=reduce)
-
-
-def babai_cvp(B, t, is_reduced: bool=False, reduce: Callable=wLLL(), coords: bool=False):
+def babai_cvp(B, t, is_reduced: bool=False, reduce: Callable=LLL, coords: bool=False):
     '''
     Computes the (approximate) closest vector to t in the lattice spanned by B
     using Babai's nearest plane algorithm. This can be very slow for large B.
@@ -270,11 +254,7 @@ def babai_cvp(B, t, is_reduced: bool=False, reduce: Callable=wLLL(), coords: boo
     return res
 
 
-def wbabai_cvp(reduce: Callable=wLLL()):
-    return partial(babai_cvp, reduce=reduce)
-
-
-def fplll_cvp(B, t, prec: int=4096, is_reduced: bool=False, reduce: Callable=wLLL(), coords: bool=False):
+def fplll_cvp(B, t, prec: int=4096, is_reduced: bool=False, reduce: Callable=LLL, coords: bool=False):
     '''
     Computes the (approximate) closest vector to t in the lattice spanned by B
     using fplll's MatGSO.babai() function. Beware of the precision used.
@@ -313,11 +293,7 @@ def fplll_cvp(B, t, prec: int=4096, is_reduced: bool=False, reduce: Callable=wLL
     return v*B
 
 
-def wfplll_cvp(prec: int=4096, reduce: Callable=wLLL()):
-    return partial(fplll_cvp, prec=prec, reduce=reduce)
-
-
-def rounding_cvp(B, t, is_reduced: bool=False, reduce: Callable=wLLL(), coords: bool=False):
+def rounding_cvp(B, t, is_reduced: bool=False, reduce: Callable=LLL, coords: bool=False):
     '''
     Computes the (approximate) closest vector to t in the lattice spanned by B
     using Babai's rounding-off algorithm. This is the fastest cvp algorithm provided.
@@ -346,10 +322,6 @@ def rounding_cvp(B, t, is_reduced: bool=False, reduce: Callable=wLLL(), coords: 
     if coords:
         return v*B, v*R
     return v*B
-
-
-def wrounding_cvp(reduce: Callable=wLLL()):
-    return partial(rounding_cvp, reduce=reduce)
 
 
 # LINEAR PROGRAMMING SOLVERS
@@ -540,7 +512,7 @@ def find_solution(problem, solver: Optional[str]=None, lp_bound: int=100, **_):
 
 # This is where the magic happens
 # based on https://library.wolfram.com/infocenter/Books/8502/AdvancedAlgebra.pdf page 80
-def _build_system(M, Mineq, b, bineq, reduce: Callable=wLLL(), cvp: Callable=wkannan_cvp(), kernel_algo: Optional[str]=None, **_):
+def _build_system(M, Mineq, b, bineq, reduce: Callable=LLL, cvp: Callable=kannan_cvp, kernel_algo: Optional[str]=None, **_):
     '''
     Accepts a system of linear (in)equalities:
     M*x = b where Mineq*x >= bineq
