@@ -2,6 +2,7 @@ import ppl
 import re
 import threading
 import subprocess
+import itertools
 
 from warnings import warn
 from queue import Queue
@@ -9,7 +10,7 @@ from typing import Callable, Optional
 from functools import partial # often comes in handy
 
 from sage.misc.verbose import verbose
-from sage.all import ZZ, QQ, vector, matrix, identity_matrix, zero_matrix, block_matrix
+from sage.all import ZZ, QQ, vector, matrix, identity_matrix, zero_matrix, block_matrix, xsrange, zero_vector
 from fpylll import IntegerMatrix, GSO, FPLLL
 
 try:
@@ -22,6 +23,12 @@ ORTOOLS = 'ortools'
 PPL = 'ppl'
 
 _DEFAULT_FLATTER_PATH = 'flatter'
+
+
+_PROBLEM_LP = 'lp' # base case where we use linear programming
+_PROBLEM_UNRESTRICTED = 'unrestricted' # infinite number of solutions
+_PROBLEM_ONE_SOLUTION = 'one_solution' # only one solution
+_PROBLEM_NO_SOLUTION = 'no_solution'
 
 # LATTICE REDUCTION FUNCTIONS
 
@@ -80,7 +87,7 @@ def LLL(M, **kwargs):
 
 
 def flatter(M, transformation: bool=False, path: str=_DEFAULT_FLATTER_PATH):
-    ''''
+    '''
     Runs flatter on the lattice basis M using the flatter CLI located
     at `path`.
 
@@ -328,9 +335,7 @@ def rounding_cvp(B, t, is_reduced: bool=False, reduce: Callable=LLL, coords: boo
 # LINEAR PROGRAMMING SOLVERS
 
 
-def _cp_model(problem, lp_bound: int=100):
-    M, b = problem
-
+def _cp_model(M, b, lp_bound: int=100):
     model = ort.CpModel()
     X = [model.NewIntVar(-lp_bound, lp_bound, f'x{i}') for i in range(M.nrows())]
 
@@ -349,9 +354,7 @@ def _validate_model(model):
     raise ValueError(f'Model rejected by ortools: {model.Validate()!r}')
 
 
-def _solve_ppl(problem, lp_bound: int=100):
-    M, b = problem
-
+def _solve_ppl(M, b, lp_bound: int=100):
     cs = ppl.Constraint_System()
     X = [ppl.Variable(i) for i in range(M.nrows())]
 
@@ -390,6 +393,19 @@ def gen_solutions(problem, solver: Optional[str]=None, lp_bound: int=100, **_):
     Returns:
         A generator yielding solutions to the problem instance.
     '''
+    problem_type, params = problem
+    if problem_type == _PROBLEM_NO_SOLUTION:
+        return
+    if problem_type == _PROBLEM_ONE_SOLUTION:
+        yield params[0]
+        return
+    if problem_type == _PROBLEM_UNRESTRICTED:
+        ker, s = params
+        for v in itertools.product(xsrange(-lp_bound, lp_bound+1), repeat=ker.ncols()):
+            yield vector(v)*ker + s
+        return
+    assert problem_type == _PROBLEM_LP
+    M, b, f = params
 
     # solver parameter is a little redundant here since
     # only ortools is supported, kept here for future possibilities
@@ -404,7 +420,7 @@ def gen_solutions(problem, solver: Optional[str]=None, lp_bound: int=100, **_):
                          ' install with `pip install ortools`')
 
     try:
-        model, X = _cp_model(problem, lp_bound)
+        model, X = _cp_model(M, b, lp_bound)
     except OverflowError:
         raise ValueError('problem too large for ortools, enumeration not possible')
 
@@ -427,7 +443,7 @@ def gen_solutions(problem, solver: Optional[str]=None, lp_bound: int=100, **_):
             sol = queue.get()
             if sol is None:
                 break
-            yield sol
+            yield f(sol)
     finally:
         stop_event.set()
         search_event.set()
@@ -474,15 +490,26 @@ def find_solution(problem, solver: Optional[str]=None, lp_bound: int=100, **_):
     Returns:
         A tuple of integers representing a solution to the problem instance.
     '''
+    problem_type, params = problem
+
+    if problem_type == _PROBLEM_NO_SOLUTION:
+        raise ValueError('no solution found')
+    if problem_type == _PROBLEM_ONE_SOLUTION:
+        return params[0]
+    if problem_type == _PROBLEM_UNRESTRICTED:
+        ker, s = params
+        return s
+    assert problem_type == _PROBLEM_LP
+    M, b, f = params
 
     # checks if 0 >= b, in that case 0 is a solution
     # since it's always part of the lattice
-    if all(x <= 0 for x in problem[1]):
+    if all(0 >= x for x in b):
         verbose('trivial solution found, no linear programming used', level=1)
-        return tuple([0]*problem[0].nrows())
+        return f([0]*M.nrows())
 
     if solver == PPL or (solver is None and ort is None):
-        return _solve_ppl(problem, lp_bound)
+        return _solve_ppl(M, b, lp_bound)
     
     if solver is not None and solver != ORTOOLS:
         raise ValueError(f'unknown solver {solver!r}')
@@ -491,14 +518,14 @@ def find_solution(problem, solver: Optional[str]=None, lp_bound: int=100, **_):
         raise ImportError('ortools is not installed, install with `pip install ortools`')
 
     try:
-        model, X = _cp_model(problem, lp_bound)
+        model, X = _cp_model(M, b, lp_bound)
     except OverflowError:
         # if the user explicitly requested ortools we throw
         if solver == ORTOOLS:
             raise ValueError('problem too large for ortools')
         # otherwise we fall back to ppl
         verbose('instance too large for ortools, falling back to ppl', level=1)
-        return _solve_ppl(problem, lp_bound)
+        return _solve_ppl(M, b, lp_bound)
 
     _validate_model(model)
 
@@ -508,12 +535,12 @@ def find_solution(problem, solver: Optional[str]=None, lp_bound: int=100, **_):
         print(model.Validate())
     if status not in [ort.OPTIMAL, ort.FEASIBLE]:
         raise ValueError('no solution found')
-    return tuple(slvr.Value(v) for v in X)
+    return f([slvr.Value(v) for v in X])
 
 
 # This is where the magic happens
 # based on https://library.wolfram.com/infocenter/Books/8502/AdvancedAlgebra.pdf page 80
-def _build_system(M, Mineq, b, bineq, reduce: Callable=LLL, cvp: Callable=kannan_cvp, kernel_algo: Optional[str]=None, **_):
+def _build_problem(M, Mineq, b, bineq, reduce: Callable=LLL, cvp: Callable=kannan_cvp, kernel_algo: Optional[str]=None, **_):
     '''
     Accepts a system of linear (in)equalities:
     M*x = b where Mineq*x >= bineq
@@ -533,25 +560,27 @@ def _build_system(M, Mineq, b, bineq, reduce: Callable=LLL, cvp: Callable=kannan
             If None it is automatically chosen heuristically.
     
     Returns:
-        A tuple (problem, f) where problem is a tuple of the form (M, b)
-        where a solution to x*M >= b is sought, and f is a function that will
-        transform a solution x back to the original space of the query.
+        A tuple containing the problem type and parameters needed to solve it. This should only be passed to
+        `find_solution` or `gen_solutions`.
     '''
-
     assert Mineq.ncols() == M.ncols()
     assert Mineq.nrows() == len(bineq)
     assert M.nrows() == len(b)
 
     # find unbounded solution
-    try:
-        s = solve_right_int(M, vector(ZZ, b))
-    except ValueError:
-        raise ValueError('no solution (even without bounds)')
+    if M.nrows() == 0:
+        s = zero_vector(ZZ, M.ncols())
+        ker = identity_matrix(M.ncols())
+    else:
+        try:
+            s = solve_right_int(M, vector(ZZ, b))
+        except ValueError:
+            return (_PROBLEM_NO_SOLUTION, ())
 
-    if kernel_algo is None:
-        # TODO: improve this heuristic
-        kernel_algo = 'pari' if M.nrows()/M.ncols() < 0.25 else 'flint'
-    ker = M.right_kernel_matrix(algorithm=kernel_algo).change_ring(ZZ)
+        if kernel_algo is None:
+            # TODO: improve this heuristic
+            kernel_algo = 'pari' if M.nrows()/M.ncols() < 0.25 else 'flint'
+        ker = M.right_kernel_matrix(algorithm=kernel_algo).change_ring(ZZ)
 
     # switch to left multiplication
     Mker = ker*Mineq.T
@@ -559,27 +588,14 @@ def _build_system(M, Mineq, b, bineq, reduce: Callable=LLL, cvp: Callable=kannan
     if Mker.rank() < Mker.nrows():
         warn('underdetermined inequalities, beware of many solutions')
 
-    # degenerate case
+    # degenerate cases
     if Mker.ncols() == 0: 
-        Mred = matrix([[0]*ker.nrows()]).T
-        bred = vector([0])
-
-        def f(sol):
-            verbose(f'solution paramaters: {sol}', level=1)
-            return vector(ZZ, sol)*ker + s
-    
-        return (Mred, bred), f
+        return (_PROBLEM_UNRESTRICTED, (ker, s))
 
     if Mker.nrows() == 0:
-        warn('fully determined equalities, no enumeration will occur')
-        Mred = matrix([[1, -1]])
-
         if all(a>=b for a, b in zip(Mineq*s, bineq)):
-            bred = vector([0, 0]) # one solution
-        else:
-            bred = vector([0, 1]) # no solutions
-
-        return (Mred, bred), lambda _: s
+            return (_PROBLEM_ONE_SOLUTION, (s,))
+        return (_PROBLEM_NO_SOLUTION, ())
 
     Mred, R = reduce(Mker, transformation=True)
 
@@ -602,7 +618,7 @@ def _build_system(M, Mineq, b, bineq, reduce: Callable=LLL, cvp: Callable=kannan
         return vector(ZZ, sol)*T + c
 
     verbose('model processing done', level=1)
-    return (Mred, bineq), f
+    return (_PROBLEM_LP, (Mred, bineq, f))
 
 
 class LinineqSolver:
@@ -644,22 +660,22 @@ class LinineqSolver:
     def lt(self, lhs, rhs):
         self.ge(rhs, lhs+1)
 
-    def _to_system(self, **kwargs):
+    def _to_problem(self, **kwargs):
         dim = len(self.vars)
 
         M = matrix(ZZ, len(self.eqs_lhs), dim, self.eqs_lhs)
         Mineq = matrix(ZZ, len(self.ineqs_rhs), dim, self.ineqs_lhs)
 
-        problem, f = _build_system(M, Mineq, self.eqs_rhs, self.ineqs_rhs, **kwargs)
-        return problem, lambda sol: {v: x for v, x in zip(self.vars, f(sol))}
+        problem = _build_problem(M, Mineq, self.eqs_rhs, self.ineqs_rhs, **kwargs)
+        return problem, lambda sol: {v: x for v, x in zip(self.vars, sol)}
     
     def solve(self, **kwargs):
-        problem, f = self._to_system(**kwargs)
-        return f(find_solution(problem, **kwargs))
+        problem, to_dict = self._to_problem(**kwargs)
+        return to_dict(find_solution(problem, **kwargs))
     
     def solve_gen(self, **kwargs):
-        problem, f = self._to_system(**kwargs)
-        yield from map(f, gen_solutions(problem, **kwargs))
+        problem, to_dict = self._to_problem(**kwargs)
+        yield from map(to_dict, gen_solutions(problem, **kwargs))
 
 
 def solve_eq_ineq_gen(M, Mineq, b, bineq, **kwargs):
@@ -667,9 +683,8 @@ def solve_eq_ineq_gen(M, Mineq, b, bineq, **kwargs):
     Returns a generetor yielding solutions to:
     M*x = b where Mineq*x >= bineq
     '''
-
-    problem, f = _build_system(M, Mineq, b, bineq, **kwargs)
-    yield from map(f, gen_solutions(problem, **kwargs))
+    problem = _build_problem(M, Mineq, b, bineq, **kwargs)
+    yield from gen_solutions(problem, **kwargs)
 
 
 def solve_eq_ineq(M, Mineq, b, bineq, **kwargs):
@@ -677,9 +692,8 @@ def solve_eq_ineq(M, Mineq, b, bineq, **kwargs):
     Finds a solution to:
     M*x = b where Mineq*x >= bineq
     '''
-
-    problem, f = _build_system(M, Mineq, b, bineq, **kwargs)
-    return f(find_solution(problem, **kwargs))
+    problem = _build_problem(M, Mineq, b, bineq, **kwargs)
+    return find_solution(problem, **kwargs)
 
 
 def solve_ineq_gen(Mineq, bineq, **kwargs):
@@ -687,7 +701,6 @@ def solve_ineq_gen(Mineq, bineq, **kwargs):
     Returns a generator yielding solutions to:
     Mineq*x >= bineq
     '''
-
     # 0xn matrix, the kernel will be the nxn identity
     M = matrix(ZZ, 0, Mineq.ncols())
     yield from solve_eq_ineq_gen(M, Mineq, [], bineq, **kwargs)
@@ -698,20 +711,19 @@ def solve_ineq(Mineq, bineq, **kwargs):
     Finds a solution to:
     Mineq*x >= bineq
     '''
-
     # 0xn matrix, the kernel will be the nxn identity
     M = matrix(ZZ, 0, Mineq.ncols())
     return solve_eq_ineq(M, Mineq, [], bineq, **kwargs)
 
 
-def _build_bounded_system(M, b, lb, ub, **kwargs):
+def _build_bounded_problem(M, b, lb, ub, **kwargs):
     assert len(lb) == len(ub) == M.ncols()
 
     Mineq = identity_matrix(M.ncols())
     Mineq = Mineq.stack(-Mineq)
     bineq = [*lb] + [-x for x in ub]
 
-    return _build_system(M, Mineq, b, bineq, **kwargs)
+    return _build_problem(M, Mineq, b, bineq, **kwargs)
 
 
 def solve_bounded_gen(M, b, lb, ub, **kwargs):
@@ -719,9 +731,8 @@ def solve_bounded_gen(M, b, lb, ub, **kwargs):
     Returns a generator yielding solutions to:
     M*x = b where lb <= x <= ub
     '''
-
-    problem, f = _build_bounded_system(M, b, lb, ub, **kwargs)
-    yield from map(f, gen_solutions(problem, **kwargs))
+    problem = _build_bounded_problem(M, b, lb, ub, **kwargs)
+    yield from gen_solutions(problem, **kwargs)
 
 
 def solve_bounded(M, b, lb, ub, **kwargs):
@@ -729,12 +740,11 @@ def solve_bounded(M, b, lb, ub, **kwargs):
     Finds a solution to:
     M*x = b where lb <= x <= ub
     '''
+    problem = _build_bounded_problem(M, b, lb, ub, **kwargs)
+    return find_solution(problem, **kwargs)
 
-    problem, f = _build_bounded_system(M, b, lb, ub, **kwargs)
-    return f(find_solution(problem, **kwargs))
 
-
-def _build_mod_system(M, b, lb, ub, N, **kwargs):
+def _build_mod_problem(M, b, lb, ub, N, **kwargs):
     neqs = M.nrows()
     nvars = M.ncols()
 
@@ -743,8 +753,8 @@ def _build_mod_system(M, b, lb, ub, N, **kwargs):
     Mineq = Mineq.stack(-Mineq)
     bineq = [*lb] + [-x for x in ub]
 
-    problem, f = _build_system(M, Mineq, b, bineq, **kwargs)
-    return problem, lambda sol: f(sol)[:nvars]
+    problem = _build_problem(M, Mineq, b, bineq, **kwargs)
+    return problem, lambda sol: sol[:nvars]
 
 
 def solve_bounded_mod_gen(M, b, lb, ub, N, **kwargs):
@@ -752,8 +762,7 @@ def solve_bounded_mod_gen(M, b, lb, ub, N, **kwargs):
     Returns a generator yielding solutions to:
     M*x = b (mod N) where lb <= x <= ub
     '''
-
-    problem, f = _build_mod_system(M, b, lb, ub, N, **kwargs)
+    problem, f = _build_mod_problem(M, b, lb, ub, N, **kwargs)
     yield from map(f, gen_solutions(problem, **kwargs))
 
 
@@ -762,12 +771,11 @@ def solve_bounded_mod(M, b, lb, ub, N, **kwargs):
     Finds a solution to:
     M*x = b (mod N) where lb <= x <= ub
     '''
-
-    problem, f = _build_mod_system(M, b, lb, ub, N, **kwargs)
+    problem, f = _build_mod_problem(M, b, lb, ub, N, **kwargs)
     return f(find_solution(problem, **kwargs))
 
 
-def _build_bounded_lcg_system(a: int, b: int, m: int, lb, ub, **kwargs):
+def _build_bounded_lcg_problem(a: int, b: int, m: int, lb, ub, **kwargs):
     assert len(lb) == len(ub)
     n = len(lb)
     B = vector(ZZ, [(b*(a**i-1)//(a-1))%m for i in range(n)])
@@ -783,8 +791,10 @@ def _build_bounded_lcg_system(a: int, b: int, m: int, lb, ub, **kwargs):
     # no equalities need to hold
     M = matrix(ZZ, 0, L.ncols())
 
-    problem, f = _build_system(M, Mineq, [], bineq, **kwargs)
-    return problem, lambda sol: L*f(sol)+B
+    problem = _build_problem(M, Mineq, [], bineq, **kwargs)
+
+    # also return a function which transforms the solution
+    return problem, lambda sol: L*sol+B
 
 
 def solve_bounded_lcg(a, b, m, lb, ub, **kwargs):
@@ -792,7 +802,7 @@ def solve_bounded_lcg(a, b, m, lb, ub, **kwargs):
     Solves for consecutive outputs of the LCG s[i+1]=(a*s[i]+b)%m
     where lb[i] <= s[i] <= ub[i]
     '''
-    problem, f = _build_bounded_lcg_system(a, b, m, lb, ub, **kwargs)
+    problem, f = _build_bounded_lcg_problem(a, b, m, lb, ub, **kwargs)
     return f(find_solution(problem, **kwargs))
 
 
@@ -802,7 +812,7 @@ def solve_bounded_lcg_gen(a, b, m, lb, ub, **kwargs):
     outputs of the LCG s[i+1]=(a*s[i]+b)%m where
     lb[i] <= s[i] <= ub[i]
     '''
-    problem, f = _build_bounded_lcg_system(a, b, m, lb, ub, **kwargs)
+    problem, f = _build_bounded_lcg_problem(a, b, m, lb, ub, **kwargs)
     yield from map(f, gen_solutions(problem, **kwargs))
 
 
