@@ -30,7 +30,7 @@ def _sage_to_fplll(M):
 
 
 def _fplll_to_sage(s, nrows, ncols):
-    return matrix(nrows, ncols, map(int, re.findall(r'-?\d+', s)))
+    return matrix(ZZ, nrows, ncols, map(ZZ, re.findall(r'-?\d+', s)))
 
 
 def BKZ(M, transformation: bool=False, block_size: int=20):
