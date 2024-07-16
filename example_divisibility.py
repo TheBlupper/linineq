@@ -14,7 +14,7 @@ from linineq import solve_ineq
 # the best i've managed is 42 digits (with lp_bound=2):
 # 375100768340560904583476889463350224435184
 
-ndig = 55
+ndig = 50
 
 L = identity_matrix(ndig)
 for i in range(ndig-1):

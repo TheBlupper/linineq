@@ -26,7 +26,7 @@ for i in range(n-1):
 for o in out:
     slvr.ge(o, 9*m//10)
     slvr.lt(o, m)
-    
+
 for sol in slvr.solve_gen():
     seed = sol[s]
 
