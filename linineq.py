@@ -88,6 +88,7 @@ def flatter(M, transformation: bool=False, path: str=_DEFAULT_FLATTER_PATH):
         M: The input lattice basis.
         transformation (optional): If True, returns the tuple (L, R) where
             L is the reduced basis and R*M = L
+        path (optional): The path to the flatter CLI.
 
     Returns:
         The matrix L or the tuple of matrices (L, R)
