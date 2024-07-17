@@ -509,7 +509,7 @@ def find_solution(problem, solver: Optional[str]=None, lp_bound: int=100, **_):
         return f([0]*M.nrows())
 
     if solver == PPL or (solver is None and ort is None):
-        return _solve_ppl(M, b, lp_bound)
+        return f(_solve_ppl(M, b, lp_bound))
     
     if solver is not None and solver != ORTOOLS:
         raise ValueError(f'unknown solver {solver!r}')
@@ -525,7 +525,7 @@ def find_solution(problem, solver: Optional[str]=None, lp_bound: int=100, **_):
             raise ValueError('problem too large for ortools')
         # otherwise we fall back to ppl
         verbose('instance too large for ortools, falling back to ppl', level=1)
-        return _solve_ppl(M, b, lp_bound)
+        return f(_solve_ppl(M, b, lp_bound))
 
     _validate_model(model)
 
