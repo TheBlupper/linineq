@@ -43,6 +43,7 @@ def _fplll_to_sage(s, nrows, ncols):
 def BKZ(
     M,
     transformation: bool = False,
+    no_cli: bool = False,
     block_size: int = 20,
     fplll_path: str = _DEFAULT_FPLLL_PATH,
     auto_abort: bool = True
@@ -64,7 +65,7 @@ def BKZ(
     '''
     assert block_size >= 1
 
-    if M.nrows() > M.ncols() or not transformation:
+    if M.nrows() > M.ncols() or (not transformation) or no_cli:
         L = M.BKZ()
         if transformation:
             verbose("Retroactively (slowly) computing transformation matrix for BKZ "
