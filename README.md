@@ -42,8 +42,8 @@ Keyword arguments:
 Each of these accept the following keyword arguments:
  - `transformation` (default `False`) is a boolean which indicates if the function should instead return the tuple $(\mathbf{L}, \mathbf{R})$ where $\mathbf{L}$ is the reduced lattice basis and $\mathbf{R M} = \mathbf{L}$.
 
-> [!WARNING]  
-> Neither BKZ nor flatter provide a transformation matrix themselves, it is calculated after the fact and this can be slow for large matrices. Use `set_verbose(1)` and look for if it freezes on `computing smith normal form...`
+> [!WARNING]
+> Neither BKZ (if nrows > ncols) nor flatter provide a transformation matrix themselves, it is calculated after the fact and this can be slow for large matrices. Use `set_verbose(1)` and look for if it freezes on `computing smith normal form...`
 
 ## CVP solvers
  - `kannan_cvp(B, t)` (alias `cvp()`) finds an approximate closest vector to $\mathbf{t}$ in the lattice $\mathbf{B}$ using the Kannan embedding. This uses lattice reduction so the `reduce` argument is relevant even if `is_reduced=True`.
