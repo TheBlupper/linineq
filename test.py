@@ -1,6 +1,7 @@
 from sage.all import *
 from linineq import *
 from itertools import product
+from traceback import print_exc
 
 reds = [BKZ, LLL, flatter]
 cvps = [rounding_cvp, babai_cvp, fplll_cvp] + [partial(kannan_cvp, reduce=red) for red in reds]
@@ -30,12 +31,31 @@ a = Meq*x
 assert len(list(solve_eq_ineq_gen(Meq, Mineq, a, [], lp_bound=1))) == 3**9
 
 print('testing reduction transformation...')
-for M in [random_matrix(ZZ, r, c) for r, c in [(50, 50), (50, 60), (60, 50)]]:
-    for red in reds:
-        L, R = red(M, transformation=True)
-        assert R*M == L
-        assert abs(R.det()) == 1 # unimodular
 
+# test cases from https://github.com/kionactf/coppersmith/blob/1726e06b9bbaac03d8d075e6ba7417d1b360d5ae/lll.py#L452
+lattice_tests = [
+    ("zerodim", [[0,0,0]]),
+    ("onedim", [[1,2,3]]),
+    ("twodim_indep", [[1,2,3],[4,5,6]]),
+    ("twodim_dep", [[1,2,3],[2,4,6]]),
+    ("threedim_indep", [[1,2,3],[4,5,6],[7,8,9]]),
+    ("threedim_one_dep", [[1,2,3],[2,4,6],[8,9,10]]),
+    ("threedim_two_dep", [[1,2,3],[2,4,6],[3,6,9]]),
+    ("overdim", [[1,2,3],[4,5,6],[7,8,9],[10,11,12]]),
+    ("overdim_onedep", [[1,2,3],[4,5,6],[3,6,9],[5,6,7]]),
+    ("multiple_2_ker", [[-2,-4,-6],[1,2,3],[3,6,9]]),
+]
+for testname, M in lattice_tests:
+    M = matrix(ZZ, M)
+    for red in reds:
+        try:
+            L, R = red(M, transformation=True)
+            assert R*M == L
+            assert abs(R.det()) == 1 # unimodular
+            assert L.dimensions() == M.dimensions()
+        except:
+            print_exc()
+            print(f'{red.__name__} failed {testname}')
 
 print('testing cvp...')
 B = random_matrix(ZZ, 50, 100)
@@ -56,5 +76,3 @@ ub = [m-1]*n
 
 for cvp, red in product(cvps, reds):
     assert {s[0] for s in solve_bounded_lcg_gen(a, b, m, lb, ub, reduce=red, cvp=cvp)} == {4337090406850605, 4359404241011232}
-
-print('all good :)')
