@@ -279,16 +279,22 @@ def babai_cvp(B, t, is_reduced: bool=False, reduce: Callable=LLL, coords: bool=F
             B = reduce(B)
     elif coords: R = identity_matrix(ZZ, B.nrows())
 
-    G = B.gram_schmidt()[0]
+    if (rank := B.rank()) < B.nrows():
+        assert B[:-rank].is_zero(), 'B is not LLL reduced'
+
+    G = B[-rank:].gram_schmidt()[0]
     diff = t
 
     v = []
     for i in reversed(range(G.nrows())):
-        c = ((diff * G[i]) / (G[i] * G[i])).round()
+        c = ((diff * G[i]) / (G[i] * G[i])).round('even')
         if coords: v.append(c)
-        diff -= c*B[i]
+        diff -= c*B[-rank+i]
     res = t - diff
+
     if coords:
+        if rank < B.nrows():
+            v += [0]*(B.nrows()-rank)
         return res, vector(ZZ, v[::-1])*R
     return res
 
