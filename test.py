@@ -30,7 +30,6 @@ x = vector(ZZ, [1337]*Meq.ncols())
 a = Meq*x
 assert len(list(solve_eq_ineq_gen(Meq, Mineq, a, [], lp_bound=1))) == 3**9
 
-print('testing reduction transformation...')
 
 # test cases from https://github.com/kionactf/coppersmith/blob/1726e06b9bbaac03d8d075e6ba7417d1b360d5ae/lll.py#L452
 lattice_tests = [
@@ -45,6 +44,8 @@ lattice_tests = [
     ("overdim_onedep", [[1,2,3],[4,5,6],[3,6,9],[5,6,7]]),
     ("multiple_2_ker", [[-2,-4,-6],[1,2,3],[3,6,9]]),
 ]
+
+print('testing reduction transformation and cvp...')
 for testname, M in lattice_tests:
     M = matrix(ZZ, M)
     for red in reds:
@@ -55,14 +56,18 @@ for testname, M in lattice_tests:
             assert L.dimensions() == M.dimensions()
         except:
             print_exc()
-            print(f'{red.__name__} failed {testname}')
+            print(f'{red.__name__} failed reduction on {testname}')
 
-print('testing cvp...')
-B = random_matrix(ZZ, 50, 100)
-t = random_vector(100, 2000)
-for cvp in cvps:
-    u, v = cvp(B, t, coords=True)
-    assert u == v*B
+    for cvp in cvps:
+        try:
+            c = random_vector(ZZ, M.nrows(), x=-100, y=100)
+            u = c*M + random_vector(ZZ, M.ncols(), x=-1, y=1)
+            t, cc = cvp(M, u, coords=True)
+            assert cc*M == t
+        except:
+            print_exc()
+            print(f'{cvp.__name__} failed cvp on {testname}')
+
 
 print('testing bounded lcg...')
 mask = 3473400794307473
