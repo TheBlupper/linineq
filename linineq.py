@@ -21,6 +21,7 @@ except ImportError:
 
 ORTOOLS = 'ortools'
 PPL = 'ppl'
+STUPID = 'stupid'
 
 _DEFAULT_FLATTER_PATH = 'flatter'
 _DEFAULT_FPLLL_PATH = 'fplll'
@@ -417,6 +418,11 @@ def _solve_ppl(M, b, lp_bound: int=100):
     return tuple(ZZ(c) for c in gen.coefficients())
 
 
+def _gen_solutions_stupid(M, b, f):
+    for v in ZZ**M.nrows():
+        if all(x >= y for x, y in zip(v*M, b)):
+            yield f(v)
+
 def gen_solutions(problem, solver: Optional[str]=None, lp_bound: int=100, **_):
     '''
     Generate solutions to a problem instance. This will be slower at
@@ -449,17 +455,26 @@ def gen_solutions(problem, solver: Optional[str]=None, lp_bound: int=100, **_):
 
     if solver == PPL:
         raise ValueError('ppl does not support enumeration')
+    elif solver == STUPID:
+        yield from _gen_solutions_stupid(M, b, f)
+        return
     elif solver is not None and solver != ORTOOLS:
         raise ValueError(f'unknown solver {solver!r}')
     
     if ort is None:
-        raise ImportError('ortools is needed for enumeration but is not installed,'
-                         ' install with `pip install ortools`')
+        warn('ortools is needed for smart enumeration but is not installed,'
+            ' install with `pip install ortools`. doing *really* dumb and'
+            ' slow enumeration instead')
+        yield from _gen_solutions_stupid(M, b, f)
+        return
 
     try:
         model, X = _cp_model(M, b, lp_bound)
     except OverflowError:
-        raise ValueError('problem too large for ortools, enumeration not possible')
+        warn('problem too large for ortools, doing *really* dumb and'
+             ' slow enumeration instead')
+        yield from _gen_solutions_stupid(M, b, f)
+        return
 
     _validate_model(model)
 
