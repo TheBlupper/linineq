@@ -21,7 +21,6 @@ except ImportError:
 
 ORTOOLS = 'ortools'
 PPL = 'ppl'
-STUPID = 'stupid'
 
 _DEFAULT_FLATTER_PATH = 'flatter'
 _DEFAULT_FPLLL_PATH = 'fplll'
@@ -418,63 +417,46 @@ def _solve_ppl(M, b, lp_bound: int=100):
     return tuple(ZZ(c) for c in gen.coefficients())
 
 
-def _gen_solutions_stupid(M, b, f):
-    for v in ZZ**M.nrows():
-        if all(x >= y for x, y in zip(v*M, b)):
-            yield f(v)
+def _gen_solutions_ppl(M, b, f):
+    X = [ppl.Variable(i) for i in range(M.nrows())]
 
-def gen_solutions(problem, solver: Optional[str]=None, lp_bound: int=100, **_):
-    '''
-    Generate solutions to a problem instance. This will be slower at
-    finding a single solution because ortools can't parallelize the search.
+    # pre-constructed system of equations with
+    # one more variable eliminated each iteration
+    # probably a negligible speedup
+    expr_systems = []
+    for i in range(len(X)):
+        es = []
+        for col in M.columns():
+            es.append(sum([int(c)*x for c, x in zip(col[i:], X[:len(X)-i])]))
+        expr_systems.append(es)
 
-    Args:
-        problem: A problem instance from a _build_xxx function.
-        solver (optional): The solver to use, currently only `'ortools'` is supported.
-        lp_bound (optional): The bounds on the unknown variables in ortools.
-    
-    Returns:
-        A generator yielding solutions to the problem instance.
-    '''
-    problem_type, params = problem
-    if problem_type == _PROBLEM_NO_SOLUTION:
-        return
-    if problem_type == _PROBLEM_ONE_SOLUTION:
-        yield params[0]
-        return
-    if problem_type == _PROBLEM_UNRESTRICTED:
-        ker, s = params
-        for v in itertools.product(xsrange(-lp_bound, lp_bound+1), repeat=ker.nrows()):
-            yield vector(v)*ker + s
-        return
-    assert problem_type == _PROBLEM_LP
-    M, b, f = params
+    def recurse(tgt, assignments):
+        i = len(assignments)
+        if i == len(X):
+            yield f(assignments)
+            return
 
-    # solver parameter is a little redundant here since
-    # only ortools is supported, kept here for future possibilities
+        cs = ppl.Constraint_System()
+        for yi, bi in zip(expr_systems[i], tgt):
+            cs.insert(yi >= int(bi))
 
-    if solver == PPL:
-        raise ValueError('ppl does not support enumeration')
-    elif solver == STUPID:
-        yield from _gen_solutions_stupid(M, b, f)
-        return
-    elif solver is not None and solver != ORTOOLS:
-        raise ValueError(f'unknown solver {solver!r}')
-    
-    if ort is None:
-        warn('ortools is needed for smart enumeration but is not installed,'
-            ' install with `pip install ortools`. doing *really* dumb and'
-            ' slow enumeration instead')
-        yield from _gen_solutions_stupid(M, b, f)
-        return
+        prob = ppl.MIP_Problem(len(X)-i, cs, 0)
+        prob.set_objective_function(X[0])
 
-    try:
-        model, X = _cp_model(M, b, lp_bound)
-    except OverflowError:
-        warn('problem too large for ortools, doing *really* dumb and'
-             ' slow enumeration instead')
-        yield from _gen_solutions_stupid(M, b, f)
-        return
+        try:
+            prob.set_optimization_mode('minimization')
+            lb = QQ(prob.optimal_value()).ceil()
+            prob.set_optimization_mode('maximization')
+            ub = QQ(prob.optimal_value()).floor()
+        except ValueError: return
+
+        for v in range(lb, ub+1):
+            yield from recurse(tgt - v*M[i], assignments + [v])
+    yield from recurse(b, [])
+
+
+def _gen_solutions_ortools(M, b, f, lp_bound: int=100):
+    model, X = _cp_model(M, b, lp_bound) # raises OverflowError
 
     _validate_model(model)
 
@@ -528,6 +510,55 @@ if ort is not None:
             if self.stop_event.is_set():
                 self.StopSearch()
                 return
+
+
+def gen_solutions(problem, solver: Optional[str]=None, lp_bound: int=100, **_):
+    '''
+    Generate solutions to a problem instance. This will be slower at
+    finding a single solution because ortools can't parallelize the search.
+
+    Args:
+        problem: A problem instance from a _build_xxx function.
+        solver (optional): The solver to use, currently only `'ortools'` is supported.
+        lp_bound (optional): The bounds on the unknown variables in ortools.
+    
+    Returns:
+        A generator yielding solutions to the problem instance.
+    '''
+    problem_type, params = problem
+    if problem_type == _PROBLEM_NO_SOLUTION:
+        return
+    if problem_type == _PROBLEM_ONE_SOLUTION:
+        yield params[0]
+        return
+    if problem_type == _PROBLEM_UNRESTRICTED:
+        ker, s = params
+        for v in itertools.product(xsrange(-lp_bound, lp_bound+1), repeat=ker.nrows()):
+            yield vector(v)*ker + s
+        return
+    assert problem_type == _PROBLEM_LP, f'unknown problem type {problem_type!r}'
+    M, b, f = params
+
+    if solver == PPL:
+        yield from _gen_solutions_ppl(M, b, f)
+        return
+    elif solver != ORTOOLS and solver is not None:
+        raise ValueError(f'unknown solver {solver!r}')
+    
+    if ort is None:
+        if solver == ORTOOLS: # explicitly requested ortools
+            raise ImportError('ortools is not installed, install with `pip install ortools`')
+        verbose('ortools not installed, falling back to ppl', level=1)
+        yield from _gen_solutions_ppl(M, b, f)
+        return
+    
+    try:
+        yield from _gen_solutions_ortools(M, b, f, lp_bound)
+    except OverflowError:
+        if solver == ORTOOLS: # explicitly requested ortools
+            raise ValueError('problem too large for ortools, try using ppl')
+        verbose('instance too large for ortools, falling back to ppl', level=1)
+        yield from _gen_solutions_ppl(M, b, f)
 
 
 def find_solution(problem, solver: Optional[str]=None, lp_bound: int=100, **_):
