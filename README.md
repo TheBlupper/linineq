@@ -33,7 +33,7 @@ Keyword arguments:
  - `kernel_algo` (default `None`) is a *string* which is passed to the `algorithm` parameter of `Matrix_integer_dense.right_kernel_matrix()`. If `None` a heuristic is used, if you notice freezing while computing the kernel try switching between `'pari'` and `'flint'`.
 
 ## Lattice reduction algorithms
- - `BKZ(M)` returns the BKZ reduction of $\mathbf{M}$.
+ - `BKZ(M, no_cli=False, block_size=20, fplll_path='fplll', auto_abort=True)` returns the BKZ reduction of $\mathbf{M}$. If `no_cli` it will use `M.BKZ()` instead of the fplll CLI (this will require postcomputation of the transformation matrix).
 
  - `flatter(M, path='flatter')` returns a the result of running [flatter](https://github.com/keeganryan/flatter) on $\mathbf{M}$. This requires `flatter` to be installed and in `PATH`, or you can specify the path to the executable with the `path` argument.
 
@@ -43,7 +43,7 @@ Each of these accept the following keyword arguments:
  - `transformation` (default `False`) is a boolean which indicates if the function should instead return the tuple $(\mathbf{L}, \mathbf{R})$ where $\mathbf{L}$ is the reduced lattice basis and $\mathbf{R M} = \mathbf{L}$.
 
 > [!WARNING]
-> Neither BKZ (if nrows > ncols) nor flatter provide a transformation matrix themselves, it is calculated after the fact and this can be slow for large matrices. Use `set_verbose(1)` and look for if it freezes on `computing smith normal form...`
+> flatter (and BKZ if `no_cli=True`) do not provide the transformation matrix themselves, it is calculated after the fact and this can be slow for large matrices. Use `set_verbose(1)` and look for if it freezes on `computing smith normal form...`
 
 ## CVP solvers
  - `kannan_cvp(B, t)` (alias `cvp()`) finds an approximate closest vector to $\mathbf{t}$ in the lattice $\mathbf{B}$ using the Kannan embedding. This uses lattice reduction so the `reduce` argument is relevant even if `is_reduced=True`.

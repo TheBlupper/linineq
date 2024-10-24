@@ -49,10 +49,10 @@ def BKZ(
     auto_abort: bool = True
 ):
     '''
-    Computes the BKZ reduction of the lattice M. 
-    This currently just uses `M.BKZ()` but will hopefully
-    use the flatter CLI in the future so that the transformation
-    matrix doesn't need to be computed separately.
+    Computes the BKZ reduction of the lattice M.
+    
+    If no_cli is True it will just use M.BKZ(), otherwise it will use the
+    fplll CLI which skips having to postcompute the transformation matrix.
 
     Args:
         M: The input lattice basis.
