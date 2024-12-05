@@ -10,7 +10,7 @@ from typing import Callable, Optional
 from functools import partial # often comes in handy
 
 from sage.misc.verbose import verbose
-from sage.all import ZZ, QQ, vector, matrix, identity_matrix, zero_matrix, block_matrix, xsrange, zero_vector
+from sage.all import ZZ, QQ, vector, matrix, identity_matrix, zero_matrix, block_matrix, xsrange, zero_vector, lcm
 from fpylll import IntegerMatrix, GSO, FPLLL
 
 try:
@@ -65,8 +65,11 @@ def BKZ(
     '''
     assert block_size >= 1
 
+    M, d = M._clear_denom()
+
     if M.nrows() > M.ncols() or (not transformation) or no_cli:
         L = M.BKZ()
+        if d != 1: L /= d
         if transformation:
             verbose("Retroactively (slowly) computing transformation matrix for BKZ "
                  "because fplll currently doesn't support this for matrices where "
@@ -80,7 +83,8 @@ def BKZ(
     res = subprocess.check_output(cmd,
         input=_sage_to_fplll(M).encode()).decode()
     R = _fplll_to_sage(res, M.nrows(), M.nrows())
-    return R*M, R
+    L = R*M
+    return L if d == 1 else L / d, R
 
 
 def LLL(M, **kwargs):
@@ -94,9 +98,14 @@ def LLL(M, **kwargs):
     Returns:
         The result of `M.LLL(**kwargs)`
     '''
-    return M.LLL(**kwargs)
+    M, d = M._clear_denom()
+    M = M.LLL(**kwargs)
+    if isinstance(M, tuple): # transformation
+        return M[0] if d == 1 else M[0] / d, M[1]
+    return M if d == 1 else M / d
 
 
+_flatter_supports_transformation = None
 def flatter(M, transformation: bool=False, path: str=_DEFAULT_FLATTER_PATH):
     '''
     Runs flatter on the lattice basis M using the flatter CLI located
@@ -110,11 +119,10 @@ def flatter(M, transformation: bool=False, path: str=_DEFAULT_FLATTER_PATH):
 
     Returns:
         The matrix L or the tuple of matrices (L, R)
-
-    Raises:
-        ValueError: If the matrix has more rows than columns,
-            flatter doesn't support this.
     '''
+    global _flatter_supports_transformation
+
+    M, d = M._clear_denom()
 
     if M.is_zero():
         return M, identity_matrix(ZZ, M.nrows())
@@ -135,19 +143,20 @@ def flatter(M, transformation: bool=False, path: str=_DEFAULT_FLATTER_PATH):
         R = identity_matrix(ZZ, M.nrows())
     # R is the transformation into HNF form
 
-    supports_trans = False
     if M.nrows() > 1:
-        if transformation:
+        if transformation and _flatter_supports_transformation is None:
             res = subprocess.check_output([path, '-h'])
-            supports_trans = '-of' in res.decode()
-            if not supports_trans:
+            _flatter_supports_transformation = '-of' in res.decode()
+
+            # only warn once
+            if not _flatter_supports_transformation:
                 warn('the installed version of flatter doesn\'t support providing'
                      ' transformation matrices so it will be calculated after the'
                      ' fact (slowly). consider building the feature branch'
                      ' output_unimodular from the flatter repo')
         verbose(f'running flatter on a {M.nrows()} x {M.ncols()} matrix', level=1)
 
-        if transformation and supports_trans:
+        if transformation and _flatter_supports_transformation:
             res = subprocess.check_output([path, '-of', 'b', '-of', 'u'],
                 input=_sage_to_fplll(M).encode())
             res_lines = res.decode().splitlines()
@@ -158,11 +167,14 @@ def flatter(M, transformation: bool=False, path: str=_DEFAULT_FLATTER_PATH):
             res = subprocess.check_output([path], input=_sage_to_fplll(M).encode())
             L = _fplll_to_sage(res.decode(), M.nrows(), M.ncols())
     else:
+        T = identity_matrix(ZZ, M.nrows())
         L = M
 
     L = zero_matrix(ZZ, kerdim, L.ncols()).stack(L)
+    if d != 1: L /= d
+
     if transformation:
-        if supports_trans:
+        if _flatter_supports_transformation:
             return L, R[:kerdim].stack(T*R[kerdim:])
         return L, R[:kerdim].stack(transformation_matrix(M, L[kerdim:])*R[kerdim:])
     return L
@@ -255,7 +267,7 @@ def kannan_cvp(B, t, is_reduced: bool=False, reduce: Callable=LLL, coords: bool=
             B = reduce(B)
     elif coords: R = identity_matrix(ZZ, B.nrows())
 
-    t = vector(ZZ, t)
+    t = vector(t)
 
     # an LLL reduced basis is ordered 
     # by increasing norm
@@ -354,7 +366,13 @@ def fplll_cvp(B, t, prec: int=4096, is_reduced: bool=False, reduce: Callable=LLL
     prev_prec = FPLLL.get_precision()
     FPLLL.set_precision(prec)
 
-    Mf = IntegerMatrix.from_matrix(B)
+    BZZ, dB = B._clear_denom()
+    dT = 1 if t.base_ring() == ZZ else t.denominator()
+    d = lcm(dB, dT)
+    BZZ *= ZZ(d / dB)
+    t = (t*d).change_ring(ZZ)
+
+    Mf = IntegerMatrix.from_matrix(BZZ)
     G = GSO.Mat(Mf, float_type='mpfr')
     G.update_gso()
     v = vector(ZZ, G.babai(list(t)))

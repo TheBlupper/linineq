@@ -36,6 +36,7 @@ lattice_tests = [
     ("zerodim", [[0,0,0]]),
     ("onedim", [[1,2,3]]),
     ("twodim_indep", [[1,2,3],[4,5,6]]),
+    ("twodim_indep_qq", [[QQ(1)/2,QQ(4)/5,QQ(3)/4],[QQ(1)/4,QQ(5)/3,QQ(3)/5]]),
     ("twodim_dep", [[1,2,3],[2,4,6]]),
     ("threedim_indep", [[1,2,3],[4,5,6],[7,8,9]]),
     ("threedim_one_dep", [[1,2,3],[2,4,6],[8,9,10]]),
@@ -47,7 +48,7 @@ lattice_tests = [
 
 print('testing reduction transformation and cvp...')
 for testname, M in lattice_tests:
-    M = matrix(ZZ, M)
+    M = matrix(M)
     for red in reds:
         try:
             L, R = red(M, transformation=True)
@@ -66,7 +67,7 @@ for testname, M in lattice_tests:
             assert cc*M == t
         except:
             print_exc()
-            print(f'{cvp.__name__} failed cvp on {testname}')
+            print(f'{cvp} failed cvp on {testname}')
 
 
 print('testing bounded lcg...')
