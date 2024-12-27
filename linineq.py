@@ -574,7 +574,7 @@ def gen_solutions(problem, solver: Optional[str]=None, lp_bound: int=100, **_):
 
     Args:
         problem: A problem instance from a _build_xxx function.
-        solver (optional): The solver to use, currently only `'ortools'` is supported.
+        solver (optional): The solver to use, either `ORTOOLS` or `PPL`, or `None` for automatic selection.
         lp_bound (optional): The bounds on the unknown variables in ortools.
     
     Returns:
