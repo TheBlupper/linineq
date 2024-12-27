@@ -407,8 +407,13 @@ def rounding_cvp(B, t, is_reduced: bool=False, reduce: Callable=LLL, coords: boo
             B = reduce(B)
     elif coords: R = identity_matrix(ZZ, B.nrows())
 
-    # we could also do t*B.pseudoinverse() but it's slower
-    v = vector(ZZ, [QQ(x).round('even') for x in (B*B.T).solve_left(t*B.T)])
+    if B.is_square() and B.det() != 0:
+        exact = B.solve_left(t)
+    else:
+        # we could also do t*B.pseudoinverse() but it's slower
+        exact = (B*B.T).solve_left(t*B.T)
+
+    v = vector(ZZ, [QQ(x).round('even') for x in exact])
     if coords:
         return v*B, v*R
     return v*B
