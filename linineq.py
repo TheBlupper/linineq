@@ -125,7 +125,9 @@ def flatter(M, transformation: bool=False, path: str=_DEFAULT_FLATTER_PATH):
     M, d = M._clear_denom()
 
     if M.is_zero():
-        return M, identity_matrix(ZZ, M.nrows())
+        if transformation:
+            return M, identity_matrix(ZZ, M.nrows())
+        return M
 
     M_rank = M.rank()
     kerdim = M.nrows() - M_rank
