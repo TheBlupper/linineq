@@ -106,7 +106,7 @@ def LLL(M, **kwargs):
 
 
 _flatter_supports_transformation = None
-def flatter(M, transformation: bool=False, path: str=_DEFAULT_FLATTER_PATH):
+def flatter(M, transformation: bool=False, path: str=_DEFAULT_FLATTER_PATH, rhf: float=1.0219):
     '''
     Runs flatter on the lattice basis M using the flatter CLI located
     at `path`.
@@ -160,14 +160,14 @@ def flatter(M, transformation: bool=False, path: str=_DEFAULT_FLATTER_PATH):
         verbose(f'running flatter on a {M.nrows()} x {M.ncols()} matrix', level=1)
 
         if transformation and _flatter_supports_transformation:
-            res = subprocess.check_output([path, '-of', 'b', '-of', 'u'],
+            res = subprocess.check_output([path, '-of', 'b', '-of', 'u', '-rhf', str(rhf)],
                 input=_sage_to_fplll(M).encode())
             res_lines = res.decode().splitlines()
             L = _fplll_to_sage('\n'.join(res_lines[:M.nrows()+1]), M.nrows(), M.ncols())
             T = _fplll_to_sage('\n'.join(res_lines[M.nrows()+1:]), M.nrows(), M.nrows())
             # T is the transformation into LLL form
         else:
-            res = subprocess.check_output([path], input=_sage_to_fplll(M).encode())
+            res = subprocess.check_output([path, '-rhf', str(rhf)], input=_sage_to_fplll(M).encode())
             L = _fplll_to_sage(res.decode(), M.nrows(), M.ncols())
     else:
         T = identity_matrix(ZZ, M.nrows())
