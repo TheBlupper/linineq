@@ -10,7 +10,7 @@ from typing import Callable, Optional
 from functools import partial # often comes in handy
 
 from sage.misc.verbose import verbose
-from sage.all import ZZ, QQ, vector, matrix, identity_matrix, zero_matrix, block_matrix, xsrange, zero_vector, lcm
+from sage.all import ZZ, QQ, GF, vector, matrix, identity_matrix, zero_matrix, block_matrix, xsrange, zero_vector, lcm, FiniteFields
 from fpylll import IntegerMatrix, GSO, FPLLL
 
 try:
@@ -420,6 +420,30 @@ def rounding_cvp(B, t, is_reduced: bool=False, reduce: Callable=LLL, coords: boo
     if coords:
         return v*B, v*R
     return v*B
+
+# UTILITY FUNCTIONS
+
+
+def reduce_mod(M, reduce: Callable=LLL):
+    '''
+    Utility function for finding small vectors (over the integers)
+    in the row span of M
+    '''
+    R = M.base_ring()
+    if not R.is_prime_field() and R.degree() == 1: # Zmod(n), composite n
+        L = M.change_ring(ZZ).stack(identity_matrix(M.ncols())*R.characteristic())
+        return reduce(L)[L.nrows()-L.ncols():]
+    
+    Mrref = M.rref()
+    # only keep non-zero columns
+    Mrref = Mrref[:sum(not v.is_zero() for v in Mrref)]
+
+    if R.is_prime_field():
+        L = identity_matrix(ZZ, M.ncols())*R.characteristic()
+        L.set_block(0, 0, Mrref)
+        return reduce(L)
+
+    raise ValueError(f'{R} not supported')
 
 
 # LINEAR PROGRAMMING SOLVERS
